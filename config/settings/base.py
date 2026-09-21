@@ -21,6 +21,14 @@ INSTALLED_APPS = [
     "apps.core",
     "apps.audit",
     "apps.tenants",
+    "apps.accounts",
+]
+
+AUTH_USER_MODEL = "accounts.User"
+
+PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.Argon2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
 ]
 
 MIDDLEWARE = [

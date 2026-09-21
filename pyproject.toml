@@ -4,6 +4,10 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "DJ"]
+# DJ001: the contract calls for genuinely nullable string columns (email,
+# username, pin_hash, ...) distinct from "" - NULL is excluded from partial
+# unique indexes on purpose, so blank="" would not fit.
+ignore = ["DJ001"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.dev"
