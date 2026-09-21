@@ -1,0 +1,14 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-poc_backend}
+      POSTGRES_USER: ${DB_USER:-poc_backend}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-poc_backend}
+    ports:
+      - "${DB_PORT:-5434}:5432"
+    volumes:
+      - poc_backend_db:/var/lib/postgresql/data
+
+volumes:
+  poc_backend_db:
