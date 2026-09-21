@@ -105,6 +105,9 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "EXCEPTION_HANDLER": "apps.core.api.exception_handler.error_response_handler",
+    "DEFAULT_THROTTLE_RATES": {
+        "login": "10/min",
+    },
 }
 
 SIMPLE_JWT = {

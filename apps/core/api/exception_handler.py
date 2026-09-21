@@ -9,7 +9,11 @@ def error_response_handler(exc, context):
         return None
 
     if isinstance(exc, ApiError):
-        response.data = _shape(exc.code, str(exc.detail), exc.fields)
+        body = _shape(exc.code, str(exc.detail), exc.fields)
+        if exc.retry_after is not None:
+            body["retry_after"] = exc.retry_after
+            response["Retry-After"] = str(exc.retry_after)
+        response.data = body
         return response
 
     code, message, fields = _shape_default(response.data)

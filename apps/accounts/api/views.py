@@ -11,11 +11,21 @@ from apps.tenants.models import Tenant
 from ..use_cases.login import InvalidCredentials, authenticate_owner_or_manager
 from .presenters import present_tenant, present_user
 from .serializers import LoginRequestSerializer, LogoutRequestSerializer
+from .throttling import LoginRateThrottle
 
 
 class LoginView(APIView):
     authentication_classes: list = []
     permission_classes = [AllowAny]
+    throttle_classes = [LoginRateThrottle]
+
+    def throttled(self, request, wait):
+        raise ApiError(
+            code="login_throttled",
+            message="Too many sign-in attempts. Try again shortly.",
+            status_code=429,
+            retry_after=int(wait) if wait is not None else None,
+        )
 
     def post(self, request):
         serializer = LoginRequestSerializer(data=request.data)
