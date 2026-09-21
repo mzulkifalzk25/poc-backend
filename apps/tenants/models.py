@@ -2,6 +2,8 @@ from decimal import Decimal
 
 from django.db import models
 
+from apps.core.models import TenantModel
+
 
 class Tenant(models.Model):
     name = models.CharField(max_length=255)
@@ -39,3 +41,18 @@ class TenantSettings(models.Model):
     def save(self, *args, **kwargs) -> None:
         self.currency = "PKR"  # fixed, display only (contract section 2)
         super().save(*args, **kwargs)
+
+
+class Counter(TenantModel):
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=3)
+    is_active = models.BooleanField(default=True)
+    last_bill_seq = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["tenant_id", "code"], name="uniq_counter_tenant_code"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.code} {self.name}"
