@@ -19,6 +19,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "apps.core",
+    "apps.audit",
 ]
 
 MIDDLEWARE = [
@@ -50,8 +51,9 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-DATABASES = {
-    "default": {
+
+def _database_config() -> dict:
+    return {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": os.environ.get("DB_NAME", "poc_backend"),
         "USER": os.environ.get("DB_USER", "poc_backend"),
@@ -59,6 +61,14 @@ DATABASES = {
         "HOST": os.environ.get("DB_HOST", "localhost"),
         "PORT": os.environ.get("DB_PORT", "5434"),
     }
+
+
+DATABASES = {
+    # `audit` is the same physical database as `default`, reached through its
+    # own connection. Activity-log failure entries are written through it so
+    # a rollback of the request's transaction can never erase them.
+    "default": _database_config(),
+    "audit": {**_database_config(), "TEST": {"MIRROR": "default"}},
 }
 
 AUTH_PASSWORD_VALIDATORS = [
