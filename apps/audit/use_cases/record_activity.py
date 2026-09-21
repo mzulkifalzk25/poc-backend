@@ -28,6 +28,13 @@ def record_activity(entry: ActivityEntry) -> ActivityLog:
     return _write(entry, using="default")
 
 
+def record_failure(entry: ActivityEntry) -> ActivityLog:
+    """Write a failure entry (PIN/password failures, throttled sign-ins,
+    failed activation) on the separate `audit` connection, so a rollback of
+    the request's own transaction can never erase it."""
+    return _write(entry, using="audit")
+
+
 def _write(entry: ActivityEntry, using: str) -> ActivityLog:
     return ActivityLog.objects.using(using).create(
         tenant_id=entry.tenant_id,
