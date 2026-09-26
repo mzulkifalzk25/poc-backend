@@ -1,7 +1,7 @@
 from django.urls import path
 
 from .pos_views import PeopleSyncView, PinLoginView, RosterView
-from .staff_views import StaffDetailView, StaffListCreateView
+from .staff_views import ResetPinView, StaffDetailView, StaffListCreateView, UnlockView
 from .views import LoginView, LogoutView, MeView, RefreshView
 
 urlpatterns = [
@@ -14,4 +14,6 @@ urlpatterns = [
     path("pos/people/sync/", PeopleSyncView.as_view(), name="pos-people-sync"),
     path("users", StaffListCreateView.as_view(), name="user-list-create"),
     path("users/<int:user_id>", StaffDetailView.as_view(), name="user-detail"),
+    path("users/<int:user_id>/unlock", UnlockView.as_view(), name="user-unlock"),
+    path("users/<int:user_id>/reset-pin", ResetPinView.as_view(), name="user-reset-pin"),
 ]

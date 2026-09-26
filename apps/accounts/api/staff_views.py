@@ -5,6 +5,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.models import User
 from apps.accounts.repositories.staff import staff_with_pin_delay
+from apps.accounts.use_cases.pin_admin import NotACashierError, reset_pin, unlock_cashier
 from apps.accounts.use_cases.staff import (
     Actor,
     NewStaff,
@@ -102,3 +103,31 @@ def _apply_filters(queryset, filters: dict):
     if "counter" in filters:
         queryset = queryset.filter(default_counter_id=filters["counter"])
     return queryset
+
+
+def _not_a_cashier() -> ApiError:
+    return ApiError(code="not_a_cashier", message="Only cashiers have a PIN.", status_code=409)
+
+
+class UnlockView(APIView):
+    permission_classes = [IsOwner]
+
+    def post(self, request, user_id: int):
+        user = tenant_user(request, user_id)
+        try:
+            unlock_cashier(actor_of(request), user, timezone.now())
+        except NotACashierError:
+            raise _not_a_cashier() from None
+        return Response(status=204)
+
+
+class ResetPinView(APIView):
+    permission_classes = [IsOwner]
+
+    def post(self, request, user_id: int):
+        user = tenant_user(request, user_id)
+        try:
+            pin = reset_pin(actor_of(request), user, timezone.now())
+        except NotACashierError:
+            raise _not_a_cashier() from None
+        return Response({"pin": pin})
