@@ -1,15 +1,19 @@
+from datetime import datetime
+
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.use_cases.people_sync import active_roster, people_since
 from apps.accounts.use_cases.pin_login import PinAttempt, PinRejectedError, pin_login
 from apps.audit.use_cases.record_activity import ActivityEntry, record_failure
 from apps.core.api.exceptions import ApiError
 from apps.tenants.api.device_auth import CounterDevice, DeviceAuthentication
 from apps.tenants.api.permissions import IsCounterDevice
 
-from .presenters import present_user
+from .counter_context import COUNTER_AUTHENTICATION, IsCounterDeviceOrCashier, counter_context
+from .presenters import present_person, present_roster_row, present_user
 from .tokens import issue_counter_tokens
 
 _PIN_ERRORS = {
@@ -80,3 +84,40 @@ def _log_pin_failure(request, device: CounterDevice, attempt: PinAttempt, error)
             ip=request.META.get("REMOTE_ADDR"),
         )
     )
+
+
+class PeopleSyncQuerySerializer(serializers.Serializer):
+    since = serializers.CharField(required=False)
+
+    def validate_since(self, value: str) -> datetime | None:
+        if value in ("", "0"):
+            return None
+        return serializers.DateTimeField().to_internal_value(value)
+
+
+class RosterView(APIView):
+    authentication_classes = [DeviceAuthentication]
+    permission_classes = [IsCounterDevice]
+
+    def get(self, request):
+        cashiers = active_roster(request.user.tenant_id)
+        return Response([present_roster_row(user) for user in cashiers])
+
+
+class PeopleSyncView(APIView):
+    authentication_classes = COUNTER_AUTHENTICATION
+    permission_classes = [IsCounterDeviceOrCashier]
+
+    def get(self, request):
+        query = PeopleSyncQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        context = counter_context(request)
+        delta = people_since(
+            context.tenant_id, context.counter_id, query.validated_data.get("since"), timezone.now()
+        )
+        return Response(
+            {
+                "roster": [present_person(user) for user in delta.cashiers],
+                "next_since": serializers.DateTimeField().to_representation(delta.next_since),
+            }
+        )

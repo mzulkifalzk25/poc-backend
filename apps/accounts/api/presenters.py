@@ -37,3 +37,17 @@ def present_staff(user: User) -> dict:
 
 def _iso(value: datetime | None) -> str | None:
     return value.isoformat().replace("+00:00", "Z") if value else None
+
+
+def present_roster_row(user: User) -> dict:
+    return {"id": user.id, "full_name": user.full_name, "initials": initials(user.full_name)}
+
+
+def present_person(user: User) -> dict:
+    """A deactivated cashier is sent without a verifier, so the counter drops it."""
+    return {
+        **present_roster_row(user),
+        "pin_verifier": user.pin_verifier if user.is_active else None,
+        "active": user.is_active,
+        "unlocked_at": _iso(getattr(user, "unlocked_at", None)),
+    }
