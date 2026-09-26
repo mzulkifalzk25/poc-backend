@@ -2,6 +2,7 @@ from rest_framework.exceptions import NotAuthenticated, ValidationError
 from rest_framework.response import Response
 from rest_framework.test import APIRequestFactory
 from rest_framework.views import APIView
+from rest_framework_simplejwt.exceptions import InvalidToken
 
 from apps.core.api.exceptions import ApiError
 
@@ -23,6 +24,8 @@ class _RaisingView(APIView):
             raise ValidationError({"full_name": ["This field is required."]})
         if raise_kind == "not_authenticated":
             raise NotAuthenticated()
+        if raise_kind == "invalid_token":
+            raise InvalidToken({"detail": "Token is invalid", "code": "token_not_valid"})
         return Response({"ok": True})
 
 
@@ -64,3 +67,13 @@ def test_not_authenticated_uses_drf_default_code():
     assert response.status_code == 403
     assert response.data["error"]["code"] == "not_authenticated"
     assert response.data["error"]["fields"] == {}
+
+
+def test_error_with_extra_keys_next_to_detail_is_not_a_validation_error():
+    # Status is 403 here for the reason given above; the endpoint tests for
+    # /me and /auth/refresh check the real 401.
+    response = _call("invalid_token")
+
+    assert response.data == {
+        "error": {"code": "token_not_valid", "message": "Token is invalid", "fields": {}}
+    }
