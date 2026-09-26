@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 
 from rest_framework import serializers
 
@@ -8,6 +9,7 @@ from apps.tenants.domain.counter_rules import (
     is_valid_counter_code,
     next_bill_no,
 )
+from apps.tenants.domain.settings_rules import is_valid_tax_rate
 from apps.tenants.models import Counter, TenantSettings
 
 
@@ -29,6 +31,11 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
             "receipt_show_barcode",
         ]
         read_only_fields = ["currency"]
+
+    def validate_tax_rate(self, value: Decimal) -> Decimal:
+        if not is_valid_tax_rate(value):
+            raise serializers.ValidationError("Tax rate is a percent from 0 to 100.")
+        return value
 
 
 class CounterSerializer(serializers.ModelSerializer):

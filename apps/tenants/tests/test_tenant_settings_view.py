@@ -97,3 +97,28 @@ def test_each_tenant_only_sees_its_own_settings():
 
     assert response_a.json()["store_name"] == "Tenant A Store"
     assert response_b.json()["store_name"] == "Tenant B Store"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("rate", ["-1.00", "100.01", "150.00"])
+def test_tax_rate_outside_zero_to_one_hundred_percent_is_rejected(rate):
+    tenant = Tenant.objects.create(name="Fresh Basket Mart", slug="fresh-basket-mart")
+    owner_client, _owner = _authed_client(tenant)
+
+    response = owner_client.patch(SETTINGS_URL, {"tax_rate": rate})
+
+    assert response.status_code == 400
+    assert response.json()["error"]["fields"]["tax_rate"]
+    assert owner_client.get(SETTINGS_URL).json()["tax_rate"] == "0.00"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("rate", ["0.00", "17.00", "100.00"])
+def test_tax_rate_edges_are_accepted(rate):
+    tenant = Tenant.objects.create(name="Fresh Basket Mart", slug="fresh-basket-mart")
+    owner_client, _owner = _authed_client(tenant)
+
+    response = owner_client.patch(SETTINGS_URL, {"tax_rate": rate})
+
+    assert response.status_code == 200
+    assert response.json()["tax_rate"] == rate
