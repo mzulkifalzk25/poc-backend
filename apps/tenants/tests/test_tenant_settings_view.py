@@ -122,3 +122,17 @@ def test_tax_rate_edges_are_accepted(rate):
 
     assert response.status_code == 200
     assert response.json()["tax_rate"] == rate
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("width", "status"), [(58, 200), (80, 200), (72, 400), (100, 400)])
+def test_receipt_paper_width_is_58_or_80_mm(width, status):
+    tenant = Tenant.objects.create(name="Fresh Basket Mart", slug="fresh-basket-mart")
+    owner_client, _owner = _authed_client(tenant)
+
+    response = owner_client.patch(SETTINGS_URL, {"receipt_paper_mm": width})
+
+    assert response.status_code == status
+    if status == 400:
+        assert response.json()["error"]["fields"]["receipt_paper_mm"]
+        assert owner_client.get(SETTINGS_URL).json()["receipt_paper_mm"] == 80

@@ -9,7 +9,7 @@ from apps.tenants.domain.counter_rules import (
     is_valid_counter_code,
     next_bill_no,
 )
-from apps.tenants.domain.settings_rules import is_valid_tax_rate
+from apps.tenants.domain.settings_rules import is_valid_receipt_paper_width, is_valid_tax_rate
 from apps.tenants.models import Counter, TenantSettings
 
 
@@ -35,6 +35,11 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
     def validate_tax_rate(self, value: Decimal) -> Decimal:
         if not is_valid_tax_rate(value):
             raise serializers.ValidationError("Tax rate is a percent from 0 to 100.")
+        return value
+
+    def validate_receipt_paper_mm(self, value: int) -> int:
+        if not is_valid_receipt_paper_width(value):
+            raise serializers.ValidationError("Receipt paper width is 58 or 80 mm.")
         return value
 
 
