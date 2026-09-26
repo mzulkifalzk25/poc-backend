@@ -1,3 +1,6 @@
+from datetime import datetime
+
+from apps.accounts.domain.names import initials
 from apps.accounts.models import User
 from apps.tenants.models import Tenant
 
@@ -19,3 +22,17 @@ def present_tenant(tenant: Tenant) -> dict:
         "slug": tenant.slug,
         "timezone": tenant.timezone,
     }
+
+
+def present_staff(user: User) -> dict:
+    return {
+        **present_user(user),
+        "initials": initials(user.full_name),
+        "default_counter_id": user.default_counter_id,
+        "is_active": user.is_active,
+        "last_active_at": _iso(user.last_active_at),
+    }
+
+
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat().replace("+00:00", "Z") if value else None

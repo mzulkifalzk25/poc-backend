@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .staff_views import StaffDetailView, StaffListCreateView
 from .views import LoginView, LogoutView, MeView, RefreshView
 
 urlpatterns = [
@@ -7,4 +8,6 @@ urlpatterns = [
     path("auth/refresh", RefreshView.as_view(), name="auth-refresh"),
     path("auth/logout", LogoutView.as_view(), name="auth-logout"),
     path("me", MeView.as_view(), name="me"),
+    path("users", StaffListCreateView.as_view(), name="user-list-create"),
+    path("users/<int:user_id>", StaffDetailView.as_view(), name="user-detail"),
 ]
