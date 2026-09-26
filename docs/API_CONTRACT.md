@@ -59,7 +59,7 @@ Conventions
 - **No branches table (fixed decision).** Every bill, shift and return stores `counter_id`, so a branch layer can be added later.
 
 **tenants:** name, slug (unique), plan, status, timezone (default Asia/Karachi).
-**tenant_settings (1:1):** store_name, phone, address, logo, currency (PKR only, fixed, display only), tax_rate, prices_include_tax, block_when_out_of_stock (default false), receipt_paper_mm (58/80), receipt_header, receipt_footer, receipt_show_barcode.
+**tenant_settings (1:1):** store_name, phone, address, logo, currency (PKR only, fixed, display only), tax_rate (**a percent**, 0 to 100 inclusive: `17.00` means 17%, not a fraction like 0.17; `numeric(5,2)`, default `0.00`; sent as a string), prices_include_tax, block_when_out_of_stock (default false), receipt_paper_mm (58/80), receipt_header, receipt_footer, receipt_show_barcode.
 
 **counters:** name (editable), code (3 digits, unique per tenant, used in bill numbers, locked after the counter's first bill), is_active, last_bill_seq (highest sequence the server has seen, raised with `GREATEST` in the bill-batch transaction; 0 if none).
 **device_codes:** counter_id, code_hash, expires_at, used_at, revoked_at, created_by. Format `XXXX-XXXX` (8 characters, uppercase letters and digits without 0, O, 1, I, L; example `K7M4-Q92R`), single use, 15-minute expiry, stored hashed. A new code revokes any earlier unused code for that counter.
@@ -169,18 +169,28 @@ Conventions
 ### 4.2 Tenant, counters, staff
 | Method | Path | Roles | Notes |
 |---|---|---|---|
-| GET, PATCH | /tenant/settings | O | Store profile, tax, receipt, block-when-out-of-stock. Currency is fixed to PKR |
+| GET, PATCH | /tenant/settings | O | Store profile, tax, receipt, block-when-out-of-stock. Currency is fixed to PKR. `tax_rate` is a percent string (`"17.00"` = 17%); outside 0 to 100 gives 400 `validation_error` on `tax_rate` |
 | GET | /counters | O | → `[{id, name, code, is_active, status:"not_activated"｜"code_ready"｜"activated"｜"deactivated", code_expires_at?, last_seen_at?, app_version?, last_bill_seq, next_bill_no, unsynced_count?, has_open_shift, has_bills}]`. `next_bill_no` is `last_bill_seq + 1` shown as `002-000743` (the server's view; unsynced bills on the PC may already use later numbers). `unsynced_count` is from the last heartbeat |
 | POST | /counters | O | `{name, code}`; 409 `code_exists`; logs `counter_created` |
 | PATCH | /counters/{id} | O | Name and active flag. Changing `code` after the first bill: 409 `counter_code_locked` |
 | POST | /counters/{id}/deactivate | O | → 204. Revokes the PC's device token and refresh tokens (`devices.revoked_at`); from then on that PC gets 401 `device_revoked`. **409 `shift_open` while the counter has an open shift.** Logs `counter_deactivated`. The counter keeps its code and sequence; the owner can then make a new code for a replacement PC, which continues above `last_bill_seq` |
 | GET | /users | O | Filters: role, status, counter. Cashier rows include `pin_delay_until` while a delay runs |
-| POST | /users | O | Cashier: `{full_name, pin, default_counter_id}`. Owner or manager: `{full_name, email?, username?, password, role}`. 409 `name_exists` (field error on `full_name`) for a duplicate cashier name |
-| PATCH | /users/{id} | O | Includes deactivate. Renaming a cashier follows the same unique-name rule |
-| POST | /users/{id}/reset-pin | O | Cashier: → `{pin}` (4 digits, shown once; also clears any delay) |
-| POST | /users/{id}/unlock | O | Cashiers only. Clears the PIN delay on every counter → 204. Logs `pin_unlock`. No POC screen yet |
+| POST | /users | O | Cashier: `{full_name, pin, default_counter_id}`. Owner or manager: `{full_name, email?, username?, password, role}`. 409 `name_exists` (field error on `full_name`) for a duplicate cashier name; 409 `email_exists` or `username_exists` (field error on that field) for an owner or manager login already used in the tenant |
+| PATCH | /users/{id} | O | Includes deactivate. Renaming a cashier follows the same unique-name rule (409 `name_exists`); email and username changes give 409 `email_exists` or `username_exists`. Deactivating your own account: 409 `cannot_deactivate_self` (field error on `is_active`) |
+| POST | /users/{id}/reset-pin | O | Cashier: → `{pin}` (4 digits, shown once; also clears any delay). 409 `not_a_cashier` for an owner or manager |
+| POST | /users/{id}/unlock | O | Cashiers only (409 `not_a_cashier` otherwise). Clears the PIN delay on every counter → 204. Logs `pin_unlock`. No POC screen yet |
 
 An owner's password reset has no endpoint: it is a management command (section 7).
+
+Staff error codes (all use the standard error shape):
+
+| Code | HTTP | When |
+|---|---|---|
+| `name_exists` | 409 | A cashier full name already used in the tenant (case-insensitive, deactivated cashiers included). Field error on `full_name` |
+| `email_exists` | 409 | An owner or manager email already used in the tenant (case-insensitive). Field error on `email` |
+| `username_exists` | 409 | An owner or manager username already used in the tenant (case-insensitive). Field error on `username` |
+| `cannot_deactivate_self` | 409 | `PATCH /users/{id}` with `is_active: false` on the signed-in user's own account. Field error on `is_active` |
+| `not_a_cashier` | 409 | `reset-pin` or `unlock` on an owner or manager (only cashiers have a PIN) |
 
 ### 4.3 Catalogue
 | Method | Path | Roles | Request → Response |
@@ -439,3 +449,4 @@ Sample data and the 18,462-product set are for the seed script only. The seed sc
 18. Section 1 is rewritten as two repository trees following the clean-architecture layout, and HANDOFF.md is removed from the tree.
 19. The header no longer carries a canvas link and now counts 28 boards.
 20. Section 7 records the fixed decisions, the defaults from the owner's answers, the choices made here, and the design gaps with their defaults.
+21. (26 Sep 2026) Section 4.2 gains a staff error-code table (`email_exists`, `username_exists`, `cannot_deactivate_self`, `not_a_cashier` next to `name_exists`), and `tenant_settings.tax_rate` is stated as a percent from 0 to 100 (`17.00` = 17%).
