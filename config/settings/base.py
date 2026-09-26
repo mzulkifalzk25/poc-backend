@@ -23,6 +23,7 @@ INSTALLED_APPS = [
     "apps.audit",
     "apps.tenants",
     "apps.accounts",
+    "apps.catalog",
     "rest_framework_simplejwt.token_blacklist",
 ]
 
