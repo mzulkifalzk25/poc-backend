@@ -56,3 +56,52 @@ class Counter(TenantModel):
 
     def __str__(self) -> str:
         return f"{self.code} {self.name}"
+
+
+class DeviceCode(TenantModel):
+    """One-time activation code for a counter PC. Only the keyed hash is kept."""
+
+    counter = models.ForeignKey(Counter, on_delete=models.PROTECT, related_name="device_codes")
+    code_hash = models.CharField(max_length=64, unique=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.BigIntegerField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["tenant_id", "counter", "-expires_at"], name="device_code_counter_idx"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Code for counter {self.counter_id}"
+
+
+class Device(TenantModel):
+    """An activated counter PC. The opaque token is stored hashed.
+
+    `unsynced_count` is not in the contract's column list; it keeps the last
+    heartbeat's value for `GET /counters`.
+    """
+
+    counter = models.ForeignKey(Counter, on_delete=models.PROTECT, related_name="devices")
+    token_hash = models.CharField(max_length=64, unique=True)
+    app_version = models.CharField(max_length=32, blank=True, default="")
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    unsynced_count = models.PositiveIntegerField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revoked_by = models.BigIntegerField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["counter"],
+                condition=models.Q(revoked_at__isnull=True),
+                name="uniq_device_live_per_counter",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Device {self.id} for counter {self.counter_id}"
