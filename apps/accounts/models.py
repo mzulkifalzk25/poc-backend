@@ -35,20 +35,20 @@ class User(TenantModel, AbstractBaseUser):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                Lower("email"),
                 "tenant_id",
+                Lower("email"),
                 name="uniq_user_tenant_email_lower",
                 condition=models.Q(email__isnull=False),
             ),
             models.UniqueConstraint(
-                Lower("username"),
                 "tenant_id",
+                Lower("username"),
                 name="uniq_user_tenant_username_lower",
                 condition=models.Q(username__isnull=False),
             ),
             models.UniqueConstraint(
-                Lower("full_name"),
                 "tenant_id",
+                Lower("full_name"),
                 name="uniq_user_tenant_cashier_name_lower",
                 condition=models.Q(role="cashier"),
             ),

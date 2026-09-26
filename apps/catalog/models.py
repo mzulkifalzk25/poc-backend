@@ -13,7 +13,7 @@ class Category(TenantModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                Lower("name"), "tenant_id", name="uniq_category_tenant_name_lower"
+                "tenant_id", Lower("name"), name="uniq_category_tenant_name_lower"
             ),
         ]
 
