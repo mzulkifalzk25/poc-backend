@@ -22,6 +22,11 @@ def test_invalid_codes_are_rejected():
     assert not is_valid_counter_code("")
 
 
+def test_only_ascii_digits_make_a_counter_code():
+    assert not is_valid_counter_code("١٢٣")
+    assert not is_valid_counter_code("００１")
+
+
 def test_code_can_change_before_the_first_bill():
     ensure_code_can_change(current_code="001", new_code="002", last_bill_seq=0)
 

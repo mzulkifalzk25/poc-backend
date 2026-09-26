@@ -1,6 +1,6 @@
 import re
 
-_CODE_PATTERN = re.compile(r"\d{3}")
+_CODE_PATTERN = re.compile(r"[0-9]{3}")
 
 
 class CounterCodeLockedError(Exception):
