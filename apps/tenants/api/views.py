@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework.generics import ListCreateAPIView, RetrieveUpdateAPIView
 
 from apps.accounts.api.permissions import IsOwner
@@ -5,6 +6,7 @@ from apps.audit.use_cases.record_activity import ActivityEntry, record_activity
 from apps.core.api.exceptions import ApiError
 from apps.tenants.domain.counter_rules import CounterCodeLockedError, ensure_code_can_change
 from apps.tenants.models import Counter, TenantSettings
+from apps.tenants.repositories.counters import counters_with_device_state
 
 from .serializers import CounterSerializer, TenantSettingsSerializer
 
@@ -39,7 +41,9 @@ class CounterListCreateView(ListCreateAPIView):
     serializer_class = CounterSerializer
 
     def get_queryset(self):
-        return Counter.objects.for_tenant(self.request.user.tenant_id).order_by("code")
+        return counters_with_device_state(self.request.user.tenant_id, timezone.now()).order_by(
+            "code"
+        )
 
     def perform_create(self, serializer):
         tenant_id = self.request.user.tenant_id
@@ -71,7 +75,7 @@ class CounterDetailView(RetrieveUpdateAPIView):
     http_method_names = ["get", "patch"]
 
     def get_queryset(self):
-        return Counter.objects.for_tenant(self.request.user.tenant_id)
+        return counters_with_device_state(self.request.user.tenant_id, timezone.now())
 
     def perform_update(self, serializer):
         counter = serializer.instance

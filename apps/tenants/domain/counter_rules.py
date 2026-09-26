@@ -23,3 +23,14 @@ def next_bill_no(last_bill_seq: int) -> int:
 
 def format_bill_no(code: str, sequence: int) -> str:
     return f"{code}{sequence:06d}"
+
+
+def counter_status(has_live_device: bool, has_ready_code: bool, had_revoked_device: bool) -> str:
+    """The owner's flag `is_active` is separate and does not change this."""
+    if has_live_device:
+        return "activated"
+    if has_ready_code:
+        return "code_ready"
+    if had_revoked_device:
+        return "deactivated"
+    return "not_activated"
