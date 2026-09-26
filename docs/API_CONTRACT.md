@@ -1,6 +1,6 @@
 # MartDesk: API_CONTRACT.md (POC, v4)
 
-Status: **v4, in active development** (backend and frontend are being built against it). Agreed 20 Sep 2026; last changed 26 Sep 2026 (section 8, items 21 and 22).
+Status: **v4, in active development** (backend and frontend are being built against it). Agreed 20 Sep 2026; last changed 26 Sep 2026 (section 8, items 21 to 23).
 Sources: the project handoff notes (kept outside the repositories) and the design canvas (28 boards: 23 POC screens, 4 Phase 2 boards, 1 shared sidebar). The exported screens are kept outside the repositories.
 v4 = v3.1 with the simplified returns (no PIN, no approvals), the Money trail report, the new sign-in, counter management and cashier PIN delays. The change list is in section 8.
 
@@ -205,21 +205,21 @@ Staff error codes (all use the standard error shape):
 ### 4.3 Catalogue
 | Method | Path | Roles | Request → Response |
 |---|---|---|---|
-| GET | /categories | Any | `[{id, name, tint, product_count}]` |
-| POST, PATCH | /categories, /categories/{id} | O | `{name, tint}` |
-| DELETE | /categories/{id} | O | 409 `category_has_products` if not empty |
-| POST | /categories/{id}/move-products | O | `{to_category_id}` |
-| GET | /products | O, C | `?search=&category=&stock=all｜low｜out&archived=&page=` → `{count, results:[{id, barcode, name, category, unit, price, cost*, stock, status}]}` (`cost` hidden from C) |
-| POST | /products | O | `{barcode, name, category_id, unit, price, cost, stock, low_stock_alert}`; 409 `barcode_exists` |
-| GET | /products/{id} | O | Product plus stock |
-| PATCH | /products/{id} | O | A price change writes price_history and the activity log |
-| POST | /products/{id}/archive, /restore | O | The "Delete" button archives |
-| GET | /products/by-barcode/{code} | O, C | Live product or 404 `unknown_barcode` (Scan to add) |
-| GET | /products/{id}/price-history | O | `[{when, who, old, new}]` |
-| GET | /products/sync/ | D, C | `?since=<cursor>&page_size=2000` → `{products:[...incl. is_archived], categories:[...], next_since, has_more}` |
-| GET | /stock/sync/ | D, C | `?since=` → `{levels:[{product_id, qty}], next_since}` |
+| GET | /categories | Any | `[{id, name, tint, product_count}]`, ordered by `sort_order` (new categories go last). `product_count` counts live (not archived) products |
+| POST, PATCH | /categories, /categories/{id} | O | `{name, tint}`. `tint` is one of `green, blue, orange, pink, purple, teal, yellow` (the design colour keys). Names are trimmed and unique per tenant ignoring case: 409 `name_exists` (field error on `name`) |
+| DELETE | /categories/{id} | O | → 204. 409 `category_has_products` while any product uses it, **archived products included** (move them first) |
+| POST | /categories/{id}/move-products | O | `{to_category_id}` → `{moved}`. Moves live and archived products; the target must be another category of the tenant (400 on `to_category_id` otherwise). Moved products reach counters in the next sync |
+| GET | /products | O, C | `?search=&category=&stock=all｜low｜out&archived=true｜false&page=&page_size=` → `{count, results:[{id, barcode, name, category:{id, name, tint}, unit, price, cost*, stock, status}]}`. `cost` is left out entirely for C. Sorted by name. `search` matches the name anywhere or the barcode prefix. `archived` defaults to false (live products only). `stock=out` includes negative stock; `stock=low` is above zero and at or under `low_stock_alert`. `status`: `in_stock`, `low`, `out` (zero), `negative` (below zero, allowed and flagged) or `archived` |
+| POST | /products | O | `{barcode, name, category_id, unit, price, cost, stock?, low_stock_alert?}` → 201 product detail. `unit` is `pcs｜kg｜litre｜pack`; `barcode` is 1 to 64 characters without spaces; `price`, `cost`, `stock` and `low_stock_alert` are 0 or more. Opening `stock` (default 0) writes the stock level; there is no opening stock movement. 409 `barcode_exists` (field error on `barcode`) while a live product has the barcode. Logs `product_created` |
+| GET | /products/{id} | O | Product detail: the list row plus `low_stock_alert`, `is_archived`, `archived_at` |
+| PATCH | /products/{id} | O | `barcode, name, category_id, unit, price, cost, low_stock_alert` (any subset; stock is changed only through stock adjust, 4.4). A price change writes price_history and logs `price_changed` (old, new) in the same transaction. 409 `barcode_exists` |
+| POST | /products/{id}/archive, /restore | O | → product detail. The "Delete" button archives (logs `product_archived`); archiving twice changes nothing. Restore logs `product_restored` and gives 409 `barcode_exists` while another live product has the barcode |
+| GET | /products/by-barcode/{code} | O, C | Live product (list-row shape, no `cost` for C) or 404 `unknown_barcode` (Scan to add) |
+| GET | /products/{id}/price-history | O | `[{when, who, old, new}]`, newest first. `who` is the user's full name |
+| GET | /products/sync/ | D, C | `?since=<cursor>&page_size=` (1 to 2,000, default 2,000) → `{products:[{id, barcode, name, name_lc, category_id, unit, price, low_stock_alert, is_archived}], categories:[{id, name, tint, sort_order}], next_since, has_more}`. Never sends `cost`. `categories` is always the full list, so a deleted category disappears |
+| GET | /stock/sync/ | D, C | `?since=` → `{levels:[{product_id, qty}], next_since}`. Not paged: all changes since the cursor |
 
-Sync cursor: `since` is the previous `next_since` (0 the first time). The client subtracts a 10 s overlap; re-applying an upsert is harmless. Archived products arrive with `is_archived: true` so counters remove them.
+**Sync cursor (products and stock).** `next_since` is an **opaque** string: the client stores it and sends it back unchanged, and never parses or edits it. `since=0` (or no `since`) starts a full sync. Rows come in `(updated_at, id)` order, so pages never repeat or skip rows, even when thousands of rows share one timestamp (a bulk import). While `has_more` is true, call again at once with the new `next_since`. On the last page the server steps the cursor back 10 s itself, so rows saved just before a sync and committed just after it are sent next time; re-applying an upsert is harmless. Archived products arrive with `is_archived: true` so counters remove them.
 
 ### 4.4 Inventory
 | Method | Path | Roles | Request → Response |
@@ -461,3 +461,4 @@ Sample data and the 18,462-product set are for the seed script only. The seed sc
 20. Section 7 records the fixed decisions, the defaults from the owner's answers, the choices made here, and the design gaps with their defaults.
 21. (26 Sep 2026) Section 4.2 gains a staff error-code table (`email_exists`, `username_exists`, `cannot_deactivate_self`, `not_a_cashier` next to `name_exists`), and `tenant_settings.tax_rate` is stated as a percent from 0 to 100 (`17.00` = 17%).
 22. (26 Sep 2026) Written down from the first backend build: counter-PC credentials (`Authorization: Device`, the `device_id` claim, `device_revoked` and `device_invalid`), the `pin_verifier` column and format, people-sync cursor rules, `null` for optional fields, `retry_after` on the wrong PIN that starts a delay, the activation, bootstrap, heartbeat, `/counters` status and `/users` list details, and roles C, D with `cashier_id?` on shift open and close.
+23. (26 Sep 2026) Section 4.3 written down from the catalogue build, and the **product and stock sync cursor changed**: `next_since` is now an opaque keyset cursor that the client sends back unchanged, and the server applies the 10 s overlap itself (before, the client subtracted 10 s, which loops forever when more than a page of rows share one 10 s window). Also: category tints, `name_exists` for categories, delete blocked by archived products too, the `/products` filters and `status` values, cost left out for cashiers, the sync payload fields.
