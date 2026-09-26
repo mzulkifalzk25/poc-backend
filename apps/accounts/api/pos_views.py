@@ -5,12 +5,15 @@ from rest_framework import serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.use_cases.heartbeat import Heartbeat, UnknownCashierError, record_heartbeat
 from apps.accounts.use_cases.people_sync import active_roster, people_since
 from apps.accounts.use_cases.pin_login import PinAttempt, PinRejectedError, pin_login
 from apps.audit.use_cases.record_activity import ActivityEntry, record_failure
 from apps.core.api.exceptions import ApiError
 from apps.tenants.api.device_auth import CounterDevice, DeviceAuthentication
 from apps.tenants.api.permissions import IsCounterDevice
+from apps.tenants.api.serializers import TenantSettingsSerializer
+from apps.tenants.models import Counter, TenantSettings
 
 from .counter_context import COUNTER_AUTHENTICATION, IsCounterDeviceOrCashier, counter_context
 from .presenters import present_person, present_roster_row, present_user
@@ -121,3 +124,62 @@ class PeopleSyncView(APIView):
                 "next_since": serializers.DateTimeField().to_representation(delta.next_since),
             }
         )
+
+
+class BootstrapView(APIView):
+    authentication_classes = COUNTER_AUTHENTICATION
+    permission_classes = [IsCounterDeviceOrCashier]
+
+    def get(self, request):
+        context = counter_context(request)
+        counter = Counter.objects.for_tenant(context.tenant_id).get(id=context.counter_id)
+        settings, _ = TenantSettings.objects.get_or_create(tenant_id=context.tenant_id)
+        roster = active_roster(context.tenant_id)
+        return Response(
+            {
+                "counter": {"id": counter.id, "name": counter.name, "code": counter.code},
+                "settings": TenantSettingsSerializer(settings).data,
+                "last_bill_seq": counter.last_bill_seq,
+                "roster": [present_roster_row(user) for user in roster],
+                "server_time": _now_text(),
+            }
+        )
+
+
+class HeartbeatRequestSerializer(serializers.Serializer):
+    unsynced_count = serializers.IntegerField(min_value=0)
+    app_version = serializers.CharField(max_length=32, allow_blank=True, default="")
+    cashier_id = serializers.IntegerField(required=False, allow_null=True)
+
+
+class HeartbeatView(APIView):
+    authentication_classes = COUNTER_AUTHENTICATION
+    permission_classes = [IsCounterDeviceOrCashier]
+
+    def post(self, request, counter_id: int):
+        context = counter_context(request)
+        if counter_id != context.counter_id:
+            raise ApiError(code="not_found", message="Counter not found.", status_code=404)
+        serializer = HeartbeatRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        beat = Heartbeat(
+            tenant_id=context.tenant_id,
+            device_id=context.device_id,
+            unsynced_count=data["unsynced_count"],
+            app_version=data["app_version"],
+            cashier_id=data.get("cashier_id") or context.cashier_id,
+        )
+        try:
+            record_heartbeat(beat, timezone.now())
+        except UnknownCashierError:
+            raise ApiError(
+                code="validation_error",
+                message="Validation failed.",
+                fields={"cashier_id": ["Cashier not found."]},
+            ) from None
+        return Response({"server_time": _now_text()})
+
+
+def _now_text() -> str:
+    return serializers.DateTimeField().to_representation(timezone.now())
