@@ -12,6 +12,7 @@ from ..use_cases.login import InvalidCredentials, authenticate_owner_or_manager
 from .presenters import present_tenant, present_user
 from .serializers import LoginRequestSerializer, LogoutRequestSerializer
 from .throttling import LoginRateThrottle
+from .tokens import RefreshSerializer
 
 
 class LoginView(APIView):
@@ -56,7 +57,10 @@ class LoginView(APIView):
 
 class RefreshView(TokenRefreshView):
     """Rotating refresh: ROTATE_REFRESH_TOKENS and BLACKLIST_AFTER_ROTATION
-    are on, so this both validates `refresh` and issues a fresh pair."""
+    are on, so this both validates `refresh` and issues a fresh pair. A
+    counter session's token is refused once its PC is deactivated."""
+
+    serializer_class = RefreshSerializer
 
 
 class LogoutView(APIView):
