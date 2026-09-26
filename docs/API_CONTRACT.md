@@ -1,6 +1,6 @@
 # MartDesk: API_CONTRACT.md (POC, v4)
 
-Status: **DRAFT for approval. No app code written.** Date: 20 Sep 2026.
+Status: **v4, in active development** (backend and frontend are being built against it). Agreed 20 Sep 2026; last changed 26 Sep 2026 (section 8, items 21 and 22).
 Sources: the project handoff notes (kept outside the repositories) and the design canvas (28 boards: 23 POC screens, 4 Phase 2 boards, 1 shared sidebar). The exported screens are kept outside the repositories.
 v4 = v3.1 with the simplified returns (no PIN, no approvals), the Money trail report, the new sign-in, counter management and cashier PIN delays. The change list is in section 8.
 
@@ -63,10 +63,11 @@ Conventions
 
 **counters:** name (editable), code (3 digits, unique per tenant, used in bill numbers, locked after the counter's first bill), is_active, last_bill_seq (highest sequence the server has seen, raised with `GREATEST` in the bill-batch transaction; 0 if none).
 **device_codes:** counter_id, code_hash, expires_at, used_at, revoked_at, created_by. Format `XXXX-XXXX` (8 characters, uppercase letters and digits without 0, O, 1, I, L; example `K7M4-Q92R`), single use, 15-minute expiry, stored hashed. A new code revokes any earlier unused code for that counter.
-**devices:** counter_id, token_hash, app_version, last_seen_at, revoked_at, revoked_by. A counter has at most one live (non-revoked) device.
+**devices:** counter_id, token_hash (SHA-256 of the opaque token), app_version, last_seen_at, unsynced_count (from the last heartbeat, nullable), revoked_at, revoked_by. A counter has at most one live (non-revoked) device. `device_codes.code_hash` is an HMAC-SHA256 keyed with the server secret, because 8-character codes are low entropy.
 
-**users:** full_name, role (owner, manager, cashier), email (nullable, owner and manager), username (nullable, owner and manager), password_hash (owner and manager only), pin_hash (cashiers only, 4 digits, Argon2), default_counter_id (a UI default only, never a restriction), is_active, last_active_at. Cashiers have no email, username or password.
+**users:** full_name, role (owner, manager, cashier), email (nullable, owner and manager), username (nullable, owner and manager), password_hash (owner and manager only), pin_hash (cashiers only, 4 digits `0-9`, Argon2), pin_verifier (cashiers only; the offline PIN check sent to counters, format below), default_counter_id (a UI default only, never a restriction), is_active, last_active_at. Cashiers have no email, username or password.
 - Unique: (tenant, lower(email)) WHERE email IS NOT NULL; (tenant, lower(username)) WHERE username IS NOT NULL; **(tenant, lower(full_name)) WHERE role = cashier** (includes deactivated cashiers, so history never becomes ambiguous). Names are trimmed and inner spaces collapsed before saving and matching.
+- **`pin_verifier` format:** `pbkdf2_sha256$<iterations>$<salt>$<hash>`. PBKDF2-HMAC-SHA256 over the 4-digit PIN (UTF-8), salt used as its UTF-8 string, 32-byte derived key, `<hash>` in standard base64 with padding. Iterations are 600,000 today, so always read them from the string. Written whenever a PIN is set or reset. WebCrypto check: `deriveBits({name:"PBKDF2", hash:"SHA-256", salt, iterations}, key, 256)`, then compare base64. Test vector (RFC 7914): PIN `passwd`, salt `salt`, 1 iteration → `pbkdf2_sha256$1$salt$VawEblbjCJ/sFpHCJUS2BflBhSFt3gRl5oudV8INrLw=`.
 - No approval PIN, approver flag or permission flags. In the POC the role decides everything; the manager role has no screens.
 **pin_delays:** counter_id, user_id (cashier), fail_count, next_allowed_at, last_failed_at, unlocked_at. Unique (tenant, counter, user). State for the cashier PIN delay (section 4.1).
 
@@ -137,6 +138,8 @@ Conventions
 - Lists: `?page=&page_size=` for small tables; **keyset cursor** for bills and the activity log.
 - Idempotency: client UUIDs in bodies; `Idempotency-Key` header on Admin writes that must not run twice (receipt confirm, stock adjust).
 - Tokens: access 15 min; rotating refresh. Counter sessions get a 30-day sliding refresh so a long outage never locks a counter out.
+- **Counter PC credentials.** A **D** call sends the opaque device token as `Authorization: Device <device_token>`. `/auth/pin-login` issues a cashier pair whose tokens carry a `device_id` claim, so **C** calls send only `Authorization: Bearer <access>`. Endpoints marked D, C accept either. The server checks the PC on every request and on `/auth/refresh`. A revoked PC gets 401 `device_revoked` for its device token, its cashiers' access tokens and their refresh tokens. An unknown or malformed device token gets 401 `device_invalid`. The refresh of a counter session keeps the `device_id` claim and slides another 30 days. Owner and manager tokens have no `device_id` and a 7-day rotating refresh.
+- **Optional fields** (marked `?` in responses) are always present and `null` when there is no value; they are never left out.
 - **The server never rejects a sale or return that already happened.** Anomalies are accepted and flagged. Only malformed or foreign-tenant data is rejected. The one exception is a **deactivated counter PC, which is refused everywhere** (401 `device_revoked`).
 
 ### 4.1 Auth and devices
@@ -146,14 +149,21 @@ Conventions
 | POST | /auth/refresh | public | `{refresh}` → `{access, refresh}` |
 | POST | /auth/logout | Any | `{refresh}` → 204 |
 | GET | /me | Any | → `{user, tenant, permissions}` |
-| POST | /devices/codes | O | `{counter_id}` → `{code:"K7M4-Q92R", expires_at}`. Revokes any earlier unused code for that counter. 409 `counter_active` while the counter has a live PC. The plain code is returned once |
-| DELETE | /devices/codes/{counter_id} | O | Revokes the unused code without making a new one → 204 |
-| POST | /devices/activate | public | `{code, app_version}` → `{device_token, counter}`. Case and hyphen ignored. Errors: 400 `code_invalid`, 410 `code_expired`, 409 `code_used`. Rate limited per IP (10 attempts per 15 min, then 429). Logs `counter_activated` |
-| POST | /auth/pin-login | D | `{user_id, pin}` → `{access, refresh, user}`. Cashiers only. The counter always comes from the device token. Wrong PIN: 401 `invalid_pin`. During a delay: 429 `pin_throttled` with `retry_after` |
-| GET | /pos/bootstrap | D, C | → `{counter, settings{tax_rate, prices_include_tax, block_when_out_of_stock, receipt...}, last_bill_seq, roster[], server_time}` |
+| POST | /devices/codes | O | `{counter_id}` → 201 `{code:"K7M4-Q92R", expires_at}`. Revokes any earlier unused code for that counter. 409 `counter_active` while the counter has a live PC; 404 `not_found` for a counter not in the tenant. The plain code is returned once |
+| DELETE | /devices/codes/{counter_id} | O | Revokes the unused code without making a new one → 204 (also 204 when there is none; 404 `not_found` for a counter not in the tenant) |
+| POST | /devices/activate | public | `{code, app_version}` → `{device_token, counter:{id, name, code}}`. Case, hyphens and spaces ignored. Errors: 400 `code_invalid` (unknown, malformed, or revoked or replaced by a newer code), 410 `code_expired`, 409 `code_used`, 409 `counter_active` (the counter gained a live PC meanwhile). Rate limited per IP (10 attempts per 15 min, then 429 `activation_throttled` with `retry_after`). Logs `counter_activated`; failures on a known code are logged as `activation_failed` |
+| POST | /auth/pin-login | D | `{user_id, pin}` → `{access, refresh, user}`. Cashiers only. The counter always comes from the device token. Wrong PIN: 401 `invalid_pin`; when that wrong PIN starts a delay, the 401 also carries `retry_after` (and a `Retry-After` header) so the keypad can start the countdown at once. During a delay: 429 `pin_throttled` with `retry_after`. An unknown, deactivated, owner, manager or other-tenant `user_id` gets the same 401 `invalid_pin` and never starts a delay. Failures are logged as `pin_failure` and delayed tries as `pin_throttled` |
+| GET | /pos/bootstrap | D, C | → `{counter:{id, name, code}, settings{...}, last_bill_seq, roster[], server_time}`. `settings` is the whole `/tenant/settings` object (store profile, currency, `tax_rate` as a percent string, prices_include_tax, block_when_out_of_stock, receipt fields). `roster` has the `/pos/roster` shape (no verifiers; those come from people sync) |
 | GET | /pos/roster | D | → `[{id, full_name, initials}]`. All active cashiers, whatever their default counter |
-| GET | /pos/people/sync/ | D, C | `?since=` → `{roster:[{id, full_name, initials, pin_verifier, active, unlocked_at}], next_since}`. Runs with every delta sync, so a deactivated cashier disappears from the counter's Dexie within a minute and an owner unlock reaches the device |
-| POST | /counters/{id}/heartbeat | D, C | `{unsynced_count, cashier_id?, app_version}` → `{server_time}` (every 15 s; updates `devices.last_seen_at`) |
+| GET | /pos/people/sync/ | D, C | `?since=` → `{roster:[{id, full_name, initials, pin_verifier, active, unlocked_at}], next_since}`. Runs with every delta sync, so a deactivated cashier disappears from the counter's Dexie within a minute and an owner unlock reaches the device. Rules below |
+| POST | /counters/{id}/heartbeat | D, C | `{unsynced_count, cashier_id?, app_version}` → `{server_time}` (every 15 s; updates `devices.last_seen_at`, `unsynced_count` and `app_version`, and the cashier's `last_active_at`). `{id}` must be this PC's counter (404 `not_found` otherwise). `cashier_id` defaults to the signed-in cashier; a `cashier_id` that is not a cashier of the tenant gives 400 on `cashier_id` |
+
+**People sync rules.**
+- `since` is an ISO-8601 UTC time: the previous `next_since`. Missing or `0` means a full sync, which returns active cashiers only.
+- A delta returns every cashier changed after `since`, deactivated ones included (`active: false`, `pin_verifier: null`), so the counter removes them.
+- `next_since` is the server time minus 60 s, so rows changed in the last minute come again in the next sync. Re-applying a row is harmless, and a change that commits late is never missed.
+- `unlocked_at` is the last owner unlock or PIN reset for this cashier **at this counter** (both write it for every counter). The device clears its local delay when `unlocked_at` is later than the delay's start.
+- Cashier edits, deactivation, PIN reset and unlock all come through this sync; the heartbeat does not.
 
 **Sign-in flow.** The cashier types a full name. The device trims it, collapses spaces, matches it case-insensitively against the roster in Dexie, and sends the matched `user_id` with the PIN. An unmatched name never reaches the server; the screen says the name was not found.
 
@@ -170,11 +180,11 @@ Conventions
 | Method | Path | Roles | Notes |
 |---|---|---|---|
 | GET, PATCH | /tenant/settings | O | Store profile, tax, receipt, block-when-out-of-stock. Currency is fixed to PKR. `tax_rate` is a percent string (`"17.00"` = 17%); outside 0 to 100 gives 400 `validation_error` on `tax_rate` |
-| GET | /counters | O | → `[{id, name, code, is_active, status:"not_activated"｜"code_ready"｜"activated"｜"deactivated", code_expires_at?, last_seen_at?, app_version?, last_bill_seq, next_bill_no, unsynced_count?, has_open_shift, has_bills}]`. `next_bill_no` is `last_bill_seq + 1` shown as `002-000743` (the server's view; unsynced bills on the PC may already use later numbers). `unsynced_count` is from the last heartbeat |
+| GET | /counters | O | → `[{id, name, code, is_active, status:"not_activated"｜"code_ready"｜"activated"｜"deactivated", code_expires_at?, last_seen_at?, app_version?, last_bill_seq, next_bill_no, unsynced_count?, has_open_shift, has_bills}]`. `next_bill_no` is `last_bill_seq + 1` shown as `002-000743` (the server's view; unsynced bills on the PC may already use later numbers). `unsynced_count` is from the last heartbeat. `status`: `activated` when the counter has a live PC, else `code_ready` when it has an unused, unexpired code, else `deactivated` when a PC was revoked, else `not_activated`; `is_active` is the owner's own flag and does not change `status`. `code_expires_at` is set only for `code_ready`; `last_seen_at`, `app_version` and `unsynced_count` come from the live PC, else `null`. `has_bills` is `last_bill_seq > 0` |
 | POST | /counters | O | `{name, code}`; 409 `code_exists`; logs `counter_created` |
 | PATCH | /counters/{id} | O | Name and active flag. Changing `code` after the first bill: 409 `counter_code_locked` |
 | POST | /counters/{id}/deactivate | O | → 204. Revokes the PC's device token and refresh tokens (`devices.revoked_at`); from then on that PC gets 401 `device_revoked`. **409 `shift_open` while the counter has an open shift.** Logs `counter_deactivated`. The counter keeps its code and sequence; the owner can then make a new code for a replacement PC, which continues above `last_bill_seq` |
-| GET | /users | O | Filters: role, status, counter. Cashier rows include `pin_delay_until` while a delay runs |
+| GET | /users | O | Filters: `role`, `status` (`active`｜`deactivated`), `counter` (default counter). Paged: `?page=&page_size=` → `{count, results:[{id, full_name, initials, role, email, username, default_counter_id, is_active, last_active_at, pin_delay_until}]}`, ordered by name. `pin_delay_until` is the end of the latest running delay on any counter, else `null` |
 | POST | /users | O | Cashier: `{full_name, pin, default_counter_id}`. Owner or manager: `{full_name, email?, username?, password, role}`. 409 `name_exists` (field error on `full_name`) for a duplicate cashier name; 409 `email_exists` or `username_exists` (field error on that field) for an owner or manager login already used in the tenant |
 | PATCH | /users/{id} | O | Includes deactivate. Renaming a cashier follows the same unique-name rule (409 `name_exists`); email and username changes give 409 `email_exists` or `username_exists`. Deactivating your own account: 409 `cannot_deactivate_self` (field error on `is_active`) |
 | POST | /users/{id}/reset-pin | O | Cashier: → `{pin}` (4 digits, shown once; also clears any delay). 409 `not_a_cashier` for an owner or manager |
@@ -225,9 +235,9 @@ Sync cursor: `since` is the previous `next_since` (0 the first time). The client
 ### 4.5 Shifts
 | Method | Path | Roles | Request → Response |
 |---|---|---|---|
-| POST | /shifts/open | C | `{id(uuid), counter_id, opened_at, opening_cash}`; 409 `shift_already_open` |
+| POST | /shifts/open | C, D | `{id(uuid), counter_id, opened_at, opening_cash, cashier_id?}`; 409 `shift_already_open`. D is for a cashier who signed in offline (local PIN verifier) and has no cashier token yet: the device token is sent and `cashier_id` is required, checked as an active cashier of the tenant. With a cashier token, the token's cashier is used. The counter always comes from the PC |
 | GET | /shifts/current | C | Open shift for this counter, if any |
-| POST | /shifts/{id}/close | C | `{closed_at, counted_cash, local_summary, unsynced_count}` → `{expected_cash, difference, server_summary, mismatch}` |
+| POST | /shifts/{id}/close | C, D | `{closed_at, counted_cash, local_summary, unsynced_count, cashier_id?}` → `{expected_cash, difference, server_summary, mismatch}`. Same D rule as open: with a device token, `cashier_id` is required and checked as an active cashier of the tenant |
 | GET | /shifts | O | Filters: date, counter, cashier |
 | GET | /shifts/{id}/summary | O, C(own) | Bills, sales by payment type, cash refunds, expected cash |
 
@@ -336,7 +346,7 @@ The manager role exists in the data model and gets no POC screens.
 
 ## 5. Offline design (cashier)
 
-**Dexie stores:** `meta` (device, counter, settings, sync cursors, clock offset, `bill_seq`, local PIN-delay state), `products` (barcode and name_lc indexed, about 5 MB for 18.5k rows), `categories`, `stock`, `users` (roster with PBKDF2 PIN verifiers for offline sign-in; refreshed by `/pos/people/sync/`), `bills_outbox` (payload, status, attempts, next_try_at), `shifts`, `held_bills`, `recent_bills` (this counter, last 7 days, for reprint and returns), `returns_outbox`, `audit_outbox` (offline PIN failures and held-bill deletes; uploaded through `/audit/events/batch`).
+**Dexie stores:** `meta` (device, counter, settings, sync cursors, clock offset, `bill_seq`, local PIN-delay state), `products` (barcode and name_lc indexed, about 5 MB for 18.5k rows), `categories`, `stock`, `users` (roster with PBKDF2 PIN verifiers for offline sign-in, format in section 2; refreshed by `/pos/people/sync/`), `bills_outbox` (payload, status, attempts, next_try_at), `shifts`, `held_bills`, `recent_bills` (this counter, last 7 days, for reprint and returns), `returns_outbox`, `audit_outbox` (offline PIN failures and held-bill deletes; uploaded through `/audit/events/batch`).
 The app calls `navigator.storage.persist()` and refuses to sell if storage is not writable.
 
 **Activation:** "Activate this counter" needs internet once. If the server ever answers `device_revoked`, the counter shows a clear "This PC was deactivated" screen and stops selling.
@@ -450,3 +460,4 @@ Sample data and the 18,462-product set are for the seed script only. The seed sc
 19. The header no longer carries a canvas link and now counts 28 boards.
 20. Section 7 records the fixed decisions, the defaults from the owner's answers, the choices made here, and the design gaps with their defaults.
 21. (26 Sep 2026) Section 4.2 gains a staff error-code table (`email_exists`, `username_exists`, `cannot_deactivate_self`, `not_a_cashier` next to `name_exists`), and `tenant_settings.tax_rate` is stated as a percent from 0 to 100 (`17.00` = 17%).
+22. (26 Sep 2026) Written down from the first backend build: counter-PC credentials (`Authorization: Device`, the `device_id` claim, `device_revoked` and `device_invalid`), the `pin_verifier` column and format, people-sync cursor rules, `null` for optional fields, `retry_after` on the wrong PIN that starts a delay, the activation, bootstrap, heartbeat, `/counters` status and `/users` list details, and roles C, D with `cashier_id?` on shift open and close.
