@@ -2,13 +2,16 @@ import pytest
 from django.db import connection
 
 # Global by design: the public activation code and the opaque device token
-# find their tenant; the contract lists the live-PC index on counter_id alone.
+# find their tenant; the contract lists the live-PC index on counter_id alone
+# and a GIN trigram index on name_lc (a GIN trigram index cannot lead with a
+# bigint without the btree_gin extension).
 GLOBAL_BY_DESIGN = {
     "uniq_device_code_hash",
     "uniq_device_token_hash",
     "uniq_device_live_per_counter",
+    "product_name_trgm_idx",
 }
-APP_TABLE_PREFIXES = ("accounts_", "audit_", "catalog_", "tenants_")
+APP_TABLE_PREFIXES = ("accounts_", "audit_", "catalog_", "inventory_", "tenants_")
 
 _INDEXES_SQL = """
 SELECT i.relname, t.relname, first_col.attname
