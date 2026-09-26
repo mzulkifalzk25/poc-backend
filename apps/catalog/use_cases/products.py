@@ -1,11 +1,12 @@
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 
 from django.db import IntegrityError, transaction
 
 from apps.audit.use_cases.record_activity import ActivityEntry, record_activity
 from apps.catalog.domain.product_rules import name_key, normalize_product_name
-from apps.catalog.models import Category, Product
+from apps.catalog.models import Category, PriceHistory, Product
 from apps.inventory.models import StockLevel
 
 _LIVE_BARCODE_CONSTRAINT = "uniq_product_live_barcode"
@@ -89,5 +90,49 @@ def _log_created(product: Product, user_id: int, stock: Decimal) -> None:
             entity_type="product",
             entity_id=str(product.id),
             after={**product_snapshot(product), "stock": str(stock)},
+        )
+    )
+
+
+UPDATABLE_FIELDS = ("barcode", "name", "unit", "price", "cost", "low_stock_alert")
+
+
+def update_product(product: Product, user_id: int, changes: dict, now: datetime) -> Product:
+    """A price change writes price_history and the activity log in the same
+    transaction. Stock is not edited here (stock adjust, Step B7)."""
+    old_price = product.price
+    for name in UPDATABLE_FIELDS:
+        if name in changes:
+            setattr(product, name, changes[name])
+    product.name_lc = name_key(product.name)
+    if "category_id" in changes:
+        product.category = tenant_category(product.tenant_id, changes["category_id"])
+    with transaction.atomic():
+        save_product(product)
+        if product.price != old_price:
+            _record_price_change(product, old_price, user_id, now)
+    return product
+
+
+def _record_price_change(product: Product, old_price: Decimal, user_id: int, now: datetime) -> None:
+    PriceHistory.objects.create(
+        tenant_id=product.tenant_id,
+        product=product,
+        old_price=old_price,
+        new_price=product.price,
+        changed_by=user_id,
+        source="edit",
+        changed_at=now,
+    )
+    record_activity(
+        ActivityEntry(
+            tenant_id=product.tenant_id,
+            user_id=user_id,
+            action="price_changed",
+            entity_type="product",
+            entity_id=str(product.id),
+            before={"price": str(old_price)},
+            after={"price": str(product.price)},
+            occurred_at=now,
         )
     )

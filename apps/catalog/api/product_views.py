@@ -1,17 +1,21 @@
+from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.api.permissions import IsOwner
+from apps.catalog.models import Product
+from apps.catalog.repositories.products import products_with_stock
 from apps.catalog.use_cases.products import (
     BarcodeExistsError,
     CategoryNotFoundError,
     NewProduct,
     create_product,
+    update_product,
 )
 from apps.core.api.exceptions import ApiError
 
 from .product_presenters import present_product_detail
-from .product_serializers import ProductCreateSerializer
+from .product_serializers import ProductCreateSerializer, ProductWriteSerializer
 
 
 def barcode_exists() -> ApiError:
@@ -43,3 +47,30 @@ class ProductListCreateView(APIView):
         except CategoryNotFoundError:
             raise category_not_found() from None
         return Response(present_product_detail(product, new.stock), status=201)
+
+
+def tenant_product(request, product_id: int) -> Product:
+    product = products_with_stock(request.user.tenant_id).filter(id=product_id).first()
+    if product is None:
+        raise ApiError(code="not_found", message="Product not found.", status_code=404)
+    return product
+
+
+class ProductDetailView(APIView):
+    permission_classes = [IsOwner]
+
+    def get(self, request, product_id: int):
+        product = tenant_product(request, product_id)
+        return Response(present_product_detail(product, product.qty))
+
+    def patch(self, request, product_id: int):
+        product = tenant_product(request, product_id)
+        serializer = ProductWriteSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        try:
+            update_product(product, request.user.id, serializer.validated_data, timezone.now())
+        except BarcodeExistsError:
+            raise barcode_exists() from None
+        except CategoryNotFoundError:
+            raise category_not_found() from None
+        return Response(present_product_detail(product, product.qty))
