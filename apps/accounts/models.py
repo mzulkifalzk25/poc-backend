@@ -56,3 +56,24 @@ class User(TenantModel, AbstractBaseUser):
 
     def __str__(self) -> str:
         return self.full_name
+
+
+class PinDelay(TenantModel):
+    """Cashier PIN delay state per cashier and counter (contract section 4.1)."""
+
+    counter_id = models.BigIntegerField()
+    user_id = models.BigIntegerField()
+    fail_count = models.PositiveIntegerField(default=0)
+    next_allowed_at = models.DateTimeField(null=True, blank=True)
+    last_failed_at = models.DateTimeField(null=True, blank=True)
+    unlocked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_id", "counter_id", "user_id"], name="uniq_pin_delay_counter_user"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"PIN delay for user {self.user_id} at counter {self.counter_id}"

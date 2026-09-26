@@ -31,6 +31,7 @@ def present_staff(user: User) -> dict:
         "default_counter_id": user.default_counter_id,
         "is_active": user.is_active,
         "last_active_at": _iso(user.last_active_at),
+        "pin_delay_until": _iso(getattr(user, "pin_delay_until", None)),
     }
 
 

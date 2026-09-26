@@ -1,8 +1,11 @@
+from datetime import timedelta
+
 import pytest
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.accounts.domain.pin import verifier_matches
-from apps.accounts.models import User
+from apps.accounts.models import PinDelay, User
 from apps.audit.models import ActivityLog
 from apps.tenants.models import Counter
 from apps.tenants.tests.helpers import authed_client, make_tenant
@@ -239,3 +242,38 @@ def test_cashier_cannot_manage_staff(tenant):
 
 def test_staff_needs_a_signed_in_owner():
     assert APIClient().get(USERS_URL).status_code == 401
+
+
+@pytest.mark.django_db
+def test_cashier_row_shows_a_running_delay_only(tenant, owner_client):
+    zainab = _cashier(owner_client).json()
+    now = timezone.now()
+    PinDelay.objects.create(
+        tenant_id=tenant.id,
+        counter_id=1,
+        user_id=zainab["id"],
+        fail_count=5,
+        next_allowed_at=now + timedelta(minutes=1),
+    )
+    PinDelay.objects.create(
+        tenant_id=tenant.id,
+        counter_id=2,
+        user_id=zainab["id"],
+        fail_count=4,
+        next_allowed_at=now - timedelta(minutes=1),
+    )
+
+    rows = owner_client.get(USERS_URL, {"role": "cashier"}).json()["results"]
+    renamed = owner_client.patch(f"{USERS_URL}/{zainab['id']}", {"full_name": "Zainab K"}).json()
+
+    assert rows[0]["pin_delay_until"] is not None
+    assert renamed["pin_delay_until"] == rows[0]["pin_delay_until"]
+
+
+@pytest.mark.django_db
+def test_no_delay_shows_null(owner_client):
+    _cashier(owner_client)
+
+    rows = owner_client.get(USERS_URL).json()["results"]
+
+    assert all(row["pin_delay_until"] is None for row in rows)

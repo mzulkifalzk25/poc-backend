@@ -1,8 +1,10 @@
+from django.utils import timezone
 from rest_framework.generics import ListCreateAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.models import User
+from apps.accounts.repositories.staff import staff_with_pin_delay
 from apps.accounts.use_cases.staff import (
     Actor,
     NewStaff,
@@ -50,6 +52,10 @@ def tenant_user(request, user_id: int) -> User:
     return user
 
 
+def annotated_user(request, user_id: int) -> User:
+    return staff_with_pin_delay(request.user.tenant_id, timezone.now()).get(id=user_id)
+
+
 class StaffListCreateView(ListCreateAPIView):
     permission_classes = [IsOwner]
     pagination_class = PageNumberPagination
@@ -57,7 +63,7 @@ class StaffListCreateView(ListCreateAPIView):
     def get_queryset(self):
         filters = StaffFilterSerializer(data=self.request.query_params)
         filters.is_valid(raise_exception=True)
-        queryset = User.objects.for_tenant(self.request.user.tenant_id)
+        queryset = staff_with_pin_delay(self.request.user.tenant_id, timezone.now())
         return _apply_filters(queryset, filters.validated_data).order_by("full_name", "id")
 
     def list(self, request, *args, **kwargs):
@@ -82,10 +88,10 @@ class StaffDetailView(APIView):
         serializer = StaffUpdateSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         try:
-            user = update_staff(actor_of(request), user, serializer.validated_data)
+            update_staff(actor_of(request), user, serializer.validated_data)
         except (StaffConflictError, StaffInvalidError) as error:
             raise staff_error(error) from None
-        return Response(present_staff(user))
+        return Response(present_staff(annotated_user(request, user_id)))
 
 
 def _apply_filters(queryset, filters: dict):
