@@ -37,3 +37,12 @@ def present_product_detail(product: Product, qty: Decimal | None) -> dict:
         if product.archived_at
         else None,
     }
+
+
+def present_price_change(row, who: str | None) -> dict:
+    return {
+        "when": row.changed_at.isoformat().replace("+00:00", "Z"),
+        "who": who,
+        "old": str(row.old_price),
+        "new": str(row.new_price),
+    }

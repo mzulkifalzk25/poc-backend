@@ -38,3 +38,10 @@ class ProductCreateSerializer(ProductWriteSerializer):
     stock = serializers.DecimalField(
         **_QTY, min_value=Decimal("0"), required=False, default=Decimal("0")
     )
+
+
+class ProductFilterSerializer(serializers.Serializer):
+    search = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    category = serializers.IntegerField(required=False)
+    stock = serializers.ChoiceField(choices=["all", "low", "out"], required=False, default="all")
+    archived = serializers.BooleanField(required=False, default=False)

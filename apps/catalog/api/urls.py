@@ -5,6 +5,7 @@ from .product_views import (
     ProductByBarcodeView,
     ProductDetailView,
     ProductListCreateView,
+    ProductPriceHistoryView,
     ProductRestoreView,
 )
 from .views import CategoryDetailView, CategoryListCreateView, CategoryMoveProductsView
@@ -21,6 +22,11 @@ urlpatterns = [
     path("products/<int:product_id>", ProductDetailView.as_view(), name="product-detail"),
     path("products/<int:product_id>/archive", ProductArchiveView.as_view(), name="product-archive"),
     path("products/<int:product_id>/restore", ProductRestoreView.as_view(), name="product-restore"),
+    path(
+        "products/<int:product_id>/price-history",
+        ProductPriceHistoryView.as_view(),
+        name="product-price-history",
+    ),
     path(
         "products/by-barcode/<str:code>",
         ProductByBarcodeView.as_view(),

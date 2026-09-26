@@ -4,7 +4,11 @@ from rest_framework.views import APIView
 
 from apps.accounts.api.permissions import IsOwner, IsOwnerOrCashier
 from apps.catalog.models import Product
-from apps.catalog.repositories.products import products_with_stock
+from apps.catalog.repositories.products import (
+    filter_products,
+    price_history_rows,
+    products_with_stock,
+)
 from apps.catalog.use_cases.products import (
     BarcodeExistsError,
     CategoryNotFoundError,
@@ -15,9 +19,14 @@ from apps.catalog.use_cases.products import (
     update_product,
 )
 from apps.core.api.exceptions import ApiError
+from apps.core.api.pagination import PageNumberPagination
 
-from .product_presenters import present_product, present_product_detail
-from .product_serializers import ProductCreateSerializer, ProductWriteSerializer
+from .product_presenters import present_price_change, present_product, present_product_detail
+from .product_serializers import (
+    ProductCreateSerializer,
+    ProductFilterSerializer,
+    ProductWriteSerializer,
+)
 
 
 def barcode_exists() -> ApiError:
@@ -36,7 +45,20 @@ def category_not_found() -> ApiError:
 
 
 class ProductListCreateView(APIView):
-    permission_classes = [IsOwner]
+    def get_permissions(self):
+        return [IsOwnerOrCashier()] if self.request.method == "GET" else [IsOwner()]
+
+    def get(self, request):
+        filters = ProductFilterSerializer(data=request.query_params)
+        filters.is_valid(raise_exception=True)
+        products = filter_products(
+            products_with_stock(request.user.tenant_id), filters.validated_data
+        ).order_by("name_lc", "id")
+        paginator = PageNumberPagination()
+        page = paginator.paginate_queryset(products, request, view=self)
+        include_cost = request.user.role == "owner"
+        rows = [present_product(product, product.qty, include_cost) for product in page]
+        return paginator.get_paginated_response(rows)
 
     def post(self, request):
         serializer = ProductCreateSerializer(data=request.data)
@@ -114,3 +136,12 @@ class ProductByBarcodeView(APIView):
             )
         include_cost = request.user.role == "owner"
         return Response(present_product(product, product.qty, include_cost=include_cost))
+
+
+class ProductPriceHistoryView(APIView):
+    permission_classes = [IsOwner]
+
+    def get(self, request, product_id: int):
+        product = tenant_product(request, product_id)
+        rows = price_history_rows(product)
+        return Response([present_price_change(row, who) for row, who in rows])
