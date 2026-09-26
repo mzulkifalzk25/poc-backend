@@ -1,4 +1,5 @@
 import pytest
+from django.db import connections
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
@@ -14,12 +15,18 @@ def _make_owner(tenant_id: int, username: str, password: str) -> User:
     return user
 
 
+@pytest.fixture(autouse=True)
+def _close_audit_connection():
+    yield
+    connections["audit"].close()
+
+
 @pytest.fixture
 def client() -> APIClient:
     return APIClient()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "audit"])
 def test_owner_can_log_in_with_username_and_password(client):
     tenant = Tenant.objects.create(name="Fresh Basket Mart", slug="fresh-basket-mart")
     _make_owner(tenant.id, "sana", "correct horse battery staple")
@@ -34,7 +41,7 @@ def test_owner_can_log_in_with_username_and_password(client):
     assert body["landing"] == "admin"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "audit"])
 def test_login_is_case_insensitive(client):
     tenant = Tenant.objects.create(name="Fresh Basket Mart", slug="fresh-basket-mart")
     _make_owner(tenant.id, "sana", "correct horse battery staple")
@@ -44,7 +51,7 @@ def test_login_is_case_insensitive(client):
     assert response.status_code == 200
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "audit"])
 def test_wrong_password_returns_invalid_credentials(client):
     tenant = Tenant.objects.create(name="Fresh Basket Mart", slug="fresh-basket-mart")
     _make_owner(tenant.id, "sana", "correct horse battery staple")
@@ -55,7 +62,7 @@ def test_wrong_password_returns_invalid_credentials(client):
     assert response.json()["error"]["code"] == "invalid_credentials"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "audit"])
 def test_unknown_login_returns_invalid_credentials(client):
     response = client.post(LOGIN_URL, {"login": "nobody", "password": "whatever"})
 
@@ -63,7 +70,7 @@ def test_unknown_login_returns_invalid_credentials(client):
     assert response.json()["error"]["code"] == "invalid_credentials"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "audit"])
 def test_cashier_gets_the_same_invalid_credentials_error(client):
     tenant = Tenant.objects.create(name="Fresh Basket Mart", slug="fresh-basket-mart")
     User.objects.create(
@@ -76,7 +83,7 @@ def test_cashier_gets_the_same_invalid_credentials_error(client):
     assert response.json()["error"]["code"] == "invalid_credentials"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "audit"])
 def test_deactivated_owner_cannot_log_in(client):
     tenant = Tenant.objects.create(name="Fresh Basket Mart", slug="fresh-basket-mart")
     owner = _make_owner(tenant.id, "sana", "correct horse battery staple")
@@ -88,7 +95,7 @@ def test_deactivated_owner_cannot_log_in(client):
     assert response.status_code == 401
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "audit"])
 def test_login_resolves_the_correct_tenant_when_usernames_differ(client):
     tenant_a = Tenant.objects.create(name="Fresh Basket Mart", slug="fresh-basket-mart")
     tenant_b = Tenant.objects.create(name="Other Mart", slug="other-mart")

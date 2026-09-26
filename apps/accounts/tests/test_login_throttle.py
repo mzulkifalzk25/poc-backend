@@ -1,11 +1,18 @@
 import pytest
 from django.core.cache import cache
+from django.db import connections
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 from apps.tenants.models import Tenant
 
 LOGIN_URL = "/api/v1/auth/login"
+
+
+@pytest.fixture(autouse=True)
+def _close_audit_connection():
+    yield
+    connections["audit"].close()
 
 
 @pytest.fixture(autouse=True)
@@ -20,7 +27,7 @@ def client() -> APIClient:
     return APIClient()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "audit"])
 def test_repeated_wrong_attempts_are_rate_limited_not_locked_out(client):
     tenant = Tenant.objects.create(name="Fresh Basket Mart", slug="fresh-basket-mart")
     owner = User(tenant_id=tenant.id, full_name="Sana Ahmed", role="owner", username="sana")
@@ -50,7 +57,7 @@ def test_repeated_wrong_attempts_are_rate_limited_not_locked_out(client):
     assert success.status_code == 200
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "audit"])
 def test_different_logins_from_the_same_ip_are_throttled_independently(client):
     tenant = Tenant.objects.create(name="Fresh Basket Mart", slug="fresh-basket-mart")
     for name, username in (("Sana Ahmed", "sana"), ("Other Owner", "other")):

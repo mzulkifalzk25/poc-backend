@@ -5,7 +5,12 @@ from apps.accounts.models import User
 
 
 class InvalidCredentials(Exception):
-    pass
+    """`user` is the single matching account when there is one (wrong
+    password), so the failure can be logged against its tenant."""
+
+    def __init__(self, user: User | None = None):
+        super().__init__()
+        self.user = user
 
 
 def authenticate_owner_or_manager(login: str, password: str) -> User:
@@ -18,17 +23,20 @@ def authenticate_owner_or_manager(login: str, password: str) -> User:
     hit; ambiguous or absent matches get the same invalid_credentials error
     as a wrong password, same as a role mismatch.
     """
-    login = login.strip()
+    user = find_login_account(login)
+    if user is None:
+        raise InvalidCredentials
+    if not user.check_password(password):
+        raise InvalidCredentials(user)
+    return user
+
+
+def find_login_account(login: str) -> User | None:
     candidates = list(
         User.objects.filter(
-            Q(email__iexact=login) | Q(username__iexact=login),
+            Q(email__iexact=login.strip()) | Q(username__iexact=login.strip()),
             role__in=(OWNER, MANAGER),
             is_active=True,
-        )
+        )[:2]
     )
-    if len(candidates) != 1:
-        raise InvalidCredentials
-    user = candidates[0]
-    if not user.check_password(password):
-        raise InvalidCredentials
-    return user
+    return candidates[0] if len(candidates) == 1 else None

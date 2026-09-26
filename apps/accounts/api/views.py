@@ -5,10 +5,15 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenRefreshView
 
+from apps.audit.use_cases.record_activity import ActivityEntry, record_failure
 from apps.core.api.exceptions import ApiError
 from apps.tenants.models import Tenant
 
-from ..use_cases.login import InvalidCredentials, authenticate_owner_or_manager
+from ..use_cases.login import (
+    InvalidCredentials,
+    authenticate_owner_or_manager,
+    find_login_account,
+)
 from .presenters import present_tenant, present_user
 from .serializers import LoginRequestSerializer, LogoutRequestSerializer
 from .throttling import LoginRateThrottle
@@ -21,6 +26,8 @@ class LoginView(APIView):
     throttle_classes = [LoginRateThrottle]
 
     def throttled(self, request, wait):
+        account = find_login_account(str(request.data.get("login", "")))
+        _log_login_failure(request, account, "login_throttled")
         raise ApiError(
             code="login_throttled",
             message="Too many sign-in attempts. Try again shortly.",
@@ -34,7 +41,8 @@ class LoginView(APIView):
 
         try:
             user = authenticate_owner_or_manager(**serializer.validated_data)
-        except InvalidCredentials:
+        except InvalidCredentials as error:
+            _log_login_failure(request, error.user, "login_failure")
             raise ApiError(
                 code="invalid_credentials",
                 message="Incorrect login or password.",
@@ -53,6 +61,23 @@ class LoginView(APIView):
                 "landing": "admin",
             }
         )
+
+
+def _log_login_failure(request, account, action: str) -> None:
+    """Written outside the request transaction. An unknown or ambiguous login
+    has no tenant to log against, so it is not logged."""
+    if account is None:
+        return
+    record_failure(
+        ActivityEntry(
+            tenant_id=account.tenant_id,
+            user_id=account.id,
+            action=action,
+            entity_type="user",
+            entity_id=str(account.id),
+            ip=request.META.get("REMOTE_ADDR"),
+        )
+    )
 
 
 class RefreshView(TokenRefreshView):
