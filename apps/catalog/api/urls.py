@@ -8,6 +8,7 @@ from .product_views import (
     ProductPriceHistoryView,
     ProductRestoreView,
 )
+from .sync_views import ProductSyncView
 from .views import CategoryDetailView, CategoryListCreateView, CategoryMoveProductsView
 
 urlpatterns = [
@@ -19,6 +20,7 @@ urlpatterns = [
         name="category-move-products",
     ),
     path("products", ProductListCreateView.as_view(), name="product-list-create"),
+    path("products/sync/", ProductSyncView.as_view(), name="product-sync"),
     path("products/<int:product_id>", ProductDetailView.as_view(), name="product-detail"),
     path("products/<int:product_id>/archive", ProductArchiveView.as_view(), name="product-archive"),
     path("products/<int:product_id>/restore", ProductRestoreView.as_view(), name="product-restore"),
