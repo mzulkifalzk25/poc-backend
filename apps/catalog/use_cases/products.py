@@ -136,3 +136,43 @@ def _record_price_change(product: Product, old_price: Decimal, user_id: int, now
             occurred_at=now,
         )
     )
+
+
+def archive_product(product: Product, user_id: int, now: datetime) -> Product:
+    """Deleting a product archives it; archiving twice changes nothing."""
+    if product.is_archived:
+        return product
+    product.is_archived = True
+    product.archived_at = now
+    product.archived_by = user_id
+    with transaction.atomic():
+        product.save()
+        _log_state(product, user_id, "product_archived", now)
+    return product
+
+
+def restore_product(product: Product, user_id: int, now: datetime) -> Product:
+    """Refused while another live product uses the barcode."""
+    if not product.is_archived:
+        return product
+    product.is_archived = False
+    product.archived_at = None
+    product.archived_by = None
+    with transaction.atomic():
+        save_product(product)
+        _log_state(product, user_id, "product_restored", now)
+    return product
+
+
+def _log_state(product: Product, user_id: int, action: str, now: datetime) -> None:
+    record_activity(
+        ActivityEntry(
+            tenant_id=product.tenant_id,
+            user_id=user_id,
+            action=action,
+            entity_type="product",
+            entity_id=str(product.id),
+            detail={"barcode": product.barcode, "name": product.name},
+            occurred_at=now,
+        )
+    )

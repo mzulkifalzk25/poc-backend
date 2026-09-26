@@ -2,19 +2,21 @@ from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.api.permissions import IsOwner
+from apps.accounts.api.permissions import IsOwner, IsOwnerOrCashier
 from apps.catalog.models import Product
 from apps.catalog.repositories.products import products_with_stock
 from apps.catalog.use_cases.products import (
     BarcodeExistsError,
     CategoryNotFoundError,
     NewProduct,
+    archive_product,
     create_product,
+    restore_product,
     update_product,
 )
 from apps.core.api.exceptions import ApiError
 
-from .product_presenters import present_product_detail
+from .product_presenters import present_product, present_product_detail
 from .product_serializers import ProductCreateSerializer, ProductWriteSerializer
 
 
@@ -74,3 +76,41 @@ class ProductDetailView(APIView):
         except CategoryNotFoundError:
             raise category_not_found() from None
         return Response(present_product_detail(product, product.qty))
+
+
+class ProductArchiveView(APIView):
+    permission_classes = [IsOwner]
+
+    def post(self, request, product_id: int):
+        product = tenant_product(request, product_id)
+        archive_product(product, request.user.id, timezone.now())
+        return Response(present_product_detail(product, product.qty))
+
+
+class ProductRestoreView(APIView):
+    permission_classes = [IsOwner]
+
+    def post(self, request, product_id: int):
+        product = tenant_product(request, product_id)
+        try:
+            restore_product(product, request.user.id, timezone.now())
+        except BarcodeExistsError:
+            raise barcode_exists() from None
+        return Response(present_product_detail(product, product.qty))
+
+
+class ProductByBarcodeView(APIView):
+    permission_classes = [IsOwnerOrCashier]
+
+    def get(self, request, code: str):
+        product = (
+            products_with_stock(request.user.tenant_id)
+            .filter(barcode=code.strip(), is_archived=False)
+            .first()
+        )
+        if product is None:
+            raise ApiError(
+                code="unknown_barcode", message="No live product has this barcode.", status_code=404
+            )
+        include_cost = request.user.role == "owner"
+        return Response(present_product(product, product.qty, include_cost=include_cost))
