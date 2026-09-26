@@ -1,3 +1,5 @@
+from django.db.models import Count, Q
+from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -5,13 +7,17 @@ from rest_framework.views import APIView
 from apps.accounts.api.permissions import IsOwner
 from apps.catalog.models import Category
 from apps.catalog.use_cases.categories import (
+    CategoryHasProductsError,
     CategoryNameExistsError,
+    TargetCategoryInvalidError,
     create_category,
+    delete_category,
+    move_products,
     update_category,
 )
 from apps.core.api.exceptions import ApiError
 
-from .serializers import CategoryWriteSerializer, present_category
+from .serializers import CategoryWriteSerializer, MoveProductsSerializer, present_category
 
 
 def _name_exists() -> ApiError:
@@ -29,6 +35,7 @@ class CategoryListCreateView(APIView):
         categories = (
             Category.objects.for_tenant(request.user.tenant_id)
             .filter(is_active=True)
+            .annotate(product_count=Count("products", filter=Q(products__is_archived=False)))
             .order_by("sort_order", "name")
         )
         return Response([present_category(category) for category in categories])
@@ -55,6 +62,38 @@ class CategoryDetailView(APIView):
         except CategoryNameExistsError:
             raise _name_exists() from None
         return Response(present_category(category))
+
+    def delete(self, request, category_id: int):
+        category = _tenant_category(request, category_id)
+        try:
+            delete_category(category)
+        except CategoryHasProductsError:
+            raise ApiError(
+                code="category_has_products",
+                message="This category still has products (archived ones too). Move them first.",
+                status_code=409,
+            ) from None
+        return Response(status=204)
+
+
+class CategoryMoveProductsView(APIView):
+    permission_classes = [IsOwner]
+
+    def post(self, request, category_id: int):
+        category = _tenant_category(request, category_id)
+        serializer = MoveProductsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            moved = move_products(
+                category, serializer.validated_data["to_category_id"], timezone.now()
+            )
+        except TargetCategoryInvalidError:
+            raise ApiError(
+                code="validation_error",
+                message="Validation failed.",
+                fields={"to_category_id": ["Choose another category of this store."]},
+            ) from None
+        return Response({"moved": moved})
 
 
 def _tenant_category(request, category_id: int) -> Category:

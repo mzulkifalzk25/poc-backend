@@ -1,8 +1,10 @@
+from datetime import datetime
+
 from django.db import IntegrityError, transaction
 from django.db.models import Max
 
 from apps.catalog.domain.category_rules import next_sort_order, normalize_category_name
-from apps.catalog.models import Category
+from apps.catalog.models import Category, Product
 
 _NAME_CONSTRAINT = "uniq_category_tenant_name_lower"
 
@@ -41,3 +43,33 @@ def _save(category: Category) -> None:
         if _NAME_CONSTRAINT in str(error):
             raise CategoryNameExistsError from None
         raise
+
+
+class CategoryHasProductsError(Exception):
+    pass
+
+
+class TargetCategoryInvalidError(Exception):
+    pass
+
+
+def delete_category(category: Category) -> None:
+    """Archived products still point at their category, so they count too."""
+    if Product.objects.for_tenant(category.tenant_id).filter(category=category).exists():
+        raise CategoryHasProductsError
+    category.delete()
+
+
+def move_products(category: Category, to_category_id: int, now: datetime) -> int:
+    """Moves live and archived products. `updated_at` is set explicitly
+    (a bulk update skips auto_now) so counters pick the change up in sync."""
+    target = (
+        Category.objects.for_tenant(category.tenant_id)
+        .filter(id=to_category_id, is_active=True)
+        .exclude(id=category.id)
+        .first()
+    )
+    if target is None:
+        raise TargetCategoryInvalidError
+    products = Product.objects.for_tenant(category.tenant_id).filter(category=category)
+    return products.update(category=target, updated_at=now)

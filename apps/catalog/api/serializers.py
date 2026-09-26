@@ -15,6 +15,10 @@ class CategoryWriteSerializer(serializers.Serializer):
         return name
 
 
+class MoveProductsSerializer(serializers.Serializer):
+    to_category_id = serializers.IntegerField()
+
+
 def present_category(category: Category) -> dict:
     """`product_count` counts live products; 0 until products exist."""
     return {
