@@ -30,7 +30,8 @@ def issue_activation_code(
     """Revokes any earlier unused code, then returns a new plain code once."""
     with transaction.atomic():
         counter = _lock_counter(tenant_id, counter_id)
-        if Device.objects.filter(counter=counter, revoked_at__isnull=True).exists():
+        live = Device.objects.for_tenant(tenant_id).filter(counter=counter, revoked_at__isnull=True)
+        if live.exists():
             raise CounterActiveError
         _revoke_unused_codes(counter, now)
         return _create_code(counter, user_id, now)
@@ -50,7 +51,7 @@ def _lock_counter(tenant_id: int, counter_id: int) -> Counter:
 
 
 def _revoke_unused_codes(counter: Counter, now: datetime) -> None:
-    DeviceCode.objects.filter(
+    DeviceCode.objects.for_tenant(counter.tenant_id).filter(
         counter=counter, used_at__isnull=True, revoked_at__isnull=True
     ).update(revoked_at=now)
 

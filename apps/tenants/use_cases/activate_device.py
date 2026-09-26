@@ -46,8 +46,13 @@ def activate_device(raw_code: str, app_version: str, ip: str | None, now: dateti
         raise ActivationError("code_invalid")
     with transaction.atomic():
         row = _lock_usable_code(code, now)
-        counter = Counter.objects.select_for_update().get(id=row.counter_id)
-        if Device.objects.filter(counter=counter, revoked_at__isnull=True).exists():
+        counter = (
+            Counter.objects.for_tenant(row.tenant_id).select_for_update().get(id=row.counter_id)
+        )
+        live = Device.objects.for_tenant(row.tenant_id).filter(
+            counter=counter, revoked_at__isnull=True
+        )
+        if live.exists():
             raise ActivationError("counter_active", row.tenant_id, row.counter_id)
         token = generate_device_token()
         device = Device.objects.create(

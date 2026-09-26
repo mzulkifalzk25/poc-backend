@@ -61,8 +61,10 @@ class Counter(TenantModel):
 class DeviceCode(TenantModel):
     """One-time activation code for a counter PC. Only the keyed hash is kept."""
 
-    counter = models.ForeignKey(Counter, on_delete=models.PROTECT, related_name="device_codes")
-    code_hash = models.CharField(max_length=64, unique=True)
+    counter = models.ForeignKey(
+        Counter, on_delete=models.PROTECT, related_name="device_codes", db_index=False
+    )
+    code_hash = models.CharField(max_length=64)
     expires_at = models.DateTimeField()
     used_at = models.DateTimeField(null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
@@ -73,6 +75,10 @@ class DeviceCode(TenantModel):
             models.Index(
                 fields=["tenant_id", "counter", "-expires_at"], name="device_code_counter_idx"
             ),
+        ]
+        constraints = [
+            # Global on purpose: activation is public and the code finds the tenant.
+            models.UniqueConstraint(fields=["code_hash"], name="uniq_device_code_hash"),
         ]
 
     def __str__(self) -> str:
@@ -86,8 +92,10 @@ class Device(TenantModel):
     heartbeat's value for `GET /counters`.
     """
 
-    counter = models.ForeignKey(Counter, on_delete=models.PROTECT, related_name="devices")
-    token_hash = models.CharField(max_length=64, unique=True)
+    counter = models.ForeignKey(
+        Counter, on_delete=models.PROTECT, related_name="devices", db_index=False
+    )
+    token_hash = models.CharField(max_length=64)
     app_version = models.CharField(max_length=32, blank=True, default="")
     last_seen_at = models.DateTimeField(null=True, blank=True)
     unsynced_count = models.PositiveIntegerField(null=True, blank=True)
@@ -95,12 +103,17 @@ class Device(TenantModel):
     revoked_by = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
+        indexes = [
+            models.Index(fields=["tenant_id", "counter"], name="device_tenant_counter_idx"),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["counter"],
                 condition=models.Q(revoked_at__isnull=True),
                 name="uniq_device_live_per_counter",
             ),
+            # Global on purpose: the token alone identifies the PC and its tenant.
+            models.UniqueConstraint(fields=["token_hash"], name="uniq_device_token_hash"),
         ]
 
     def __str__(self) -> str:

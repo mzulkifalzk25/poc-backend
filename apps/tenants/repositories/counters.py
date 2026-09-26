@@ -7,11 +7,18 @@ from apps.tenants.models import Counter, Device, DeviceCode
 
 def counters_with_device_state(tenant_id: int, now: datetime) -> QuerySet[Counter]:
     """One query for the counters table: live PC details and the ready code."""
-    devices = Device.objects.filter(counter=OuterRef("pk"))
+    devices = Device.objects.for_tenant(tenant_id).filter(counter=OuterRef("pk"))
     live = devices.filter(revoked_at__isnull=True)
-    ready_codes = DeviceCode.objects.filter(
-        counter=OuterRef("pk"), used_at__isnull=True, revoked_at__isnull=True, expires_at__gt=now
-    ).order_by("-expires_at")
+    ready_codes = (
+        DeviceCode.objects.for_tenant(tenant_id)
+        .filter(
+            counter=OuterRef("pk"),
+            used_at__isnull=True,
+            revoked_at__isnull=True,
+            expires_at__gt=now,
+        )
+        .order_by("-expires_at")
+    )
     return Counter.objects.for_tenant(tenant_id).annotate(
         has_live_device=Exists(live),
         had_revoked_device=Exists(devices.filter(revoked_at__isnull=False)),
