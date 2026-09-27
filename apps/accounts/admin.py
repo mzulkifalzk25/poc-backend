@@ -17,40 +17,16 @@ admin.site.login_form = DjangoAdminLoginForm
 admin.site.site_header = "MartDesk maintenance"
 admin.site.site_title = "MartDesk admin"
 
-_FIELDS = (
-    "full_name",
-    "role",
-    "email",
-    "username",
-    "tenant_id",
-    "is_active",
-    "is_django_admin",
-    "last_login",
-    "last_active_at",
-)
-
 
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
-    """Store owners and cashiers are managed in the store app, so they are
-    view-only here. Only the Django admin's own name and active flag can change;
-    its password comes from the `create_django_admin` command. Password and PIN
-    hashes are never shown."""
+    """Full CRUD for every account (store owners, managers, cashiers and the
+    Django admin itself). `password` is excluded: it is a hash, not a business
+    field, and editing it directly here would not go through Django's hasher,
+    so a new password is set with `manage.py create_store_owner`,
+    `create_django_admin` or the store's own reset-password screen."""
 
     list_display = ("full_name", "role", "email", "tenant_id", "is_active", "is_django_admin")
     list_filter = ("is_django_admin", "role", "is_active", "tenant_id")
     search_fields = ("full_name", "email", "username")
-    fields = _FIELDS
-
-    def get_readonly_fields(self, request, obj=None) -> tuple[str, ...]:
-        editable = {"full_name", "is_active"} if obj and obj.is_django_admin else set()
-        return tuple(field for field in _FIELDS if field not in editable)
-
-    def has_add_permission(self, request) -> bool:
-        return False
-
-    def has_change_permission(self, request, obj=None) -> bool:
-        return obj is None or obj.is_django_admin
-
-    def has_delete_permission(self, request, obj=None) -> bool:
-        return False
+    exclude = ("password",)
