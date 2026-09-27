@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import Protocol
 
-from django.db.models import Exists, OuterRef, QuerySet, Subquery
+from django.db.models import Exists, OuterRef, QuerySet, Subquery, Value
+from django.db.models.functions import Greatest, Now
 
 from apps.shifts.models import Shift
 from apps.tenants.models import Counter, Device, DeviceCode
@@ -21,6 +22,8 @@ class CounterRepository(Protocol):
     def ids(self, tenant_id: int) -> list[int]: ...
 
     def exists(self, tenant_id: int, counter_id: int) -> bool: ...
+
+    def raise_bill_seq(self, tenant_id: int, counter_id: int, sequence: int) -> None: ...
 
 
 class DjangoCounterRepository:
@@ -75,6 +78,12 @@ class DjangoCounterRepository:
 
     def exists(self, tenant_id: int, counter_id: int) -> bool:
         return Counter.objects.for_tenant(tenant_id).filter(id=counter_id).exists()
+
+    def raise_bill_seq(self, tenant_id: int, counter_id: int, sequence: int) -> None:
+        """Never lowers it: late uploads of older bills keep the highest seen."""
+        Counter.objects.for_tenant(tenant_id).filter(id=counter_id).update(
+            last_bill_seq=Greatest("last_bill_seq", Value(sequence)), updated_at=Now()
+        )
 
 
 counter_repository = DjangoCounterRepository()

@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Protocol
 
@@ -25,6 +26,8 @@ class UserRepository(Protocol):
     def staff_list(self, tenant_id: int, now: datetime, filters: dict) -> QuerySet[User]: ...
 
     def active_cashier(self, tenant_id: int, user_id: int) -> User | None: ...
+
+    def ids_in_tenant(self, tenant_id: int, ids: Iterable[int]) -> set[int]: ...
 
     def active_roster(self, tenant_id: int) -> list[User]: ...
 
@@ -73,6 +76,11 @@ class DjangoUserRepository:
             .filter(id=user_id, role=CASHIER, is_active=True)
             .first()
         )
+
+    def ids_in_tenant(self, tenant_id: int, ids: Iterable[int]) -> set[int]:
+        """Deactivated staff included: their past sales still upload."""
+        found = User.objects.for_tenant(tenant_id).filter(id__in=list(set(ids)))
+        return set(found.values_list("id", flat=True))
 
     def active_roster(self, tenant_id: int) -> list[User]:
         return list(
