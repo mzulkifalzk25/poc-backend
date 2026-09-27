@@ -29,6 +29,7 @@ python manage.py makemigrations --check --dry-run
 
 ```
 python scripts/seed_sample_data.py            # small POC data set
+python scripts/seed_sample_data.py --large    # 18,462 products, 40 counters (load test)
 ```
 
 Creates the demo store "Fresh Basket Mart" (owner `sana`, cashiers Zainab
@@ -39,6 +40,12 @@ owner password, the cashier PINs, the device tokens of counters 001 and 002
 (single use, 15 minutes). Safe to run twice: each run resets only the demo
 tenant and prints new values. Activity-log entries from earlier runs stay
 (the log is append-only).
+
+`--large` builds the long-term target on the same shape: the small set plus
+generated products up to 18,462 in total (same 7 categories, valid `896…`
+barcodes, costs 80 to 90 percent of price, some low and out of stock), and
+counters 004 to 040, each activated with its own device token. The generated
+catalogue is the same on every run.
 
 ## Layout
 

@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-from django.db import transaction
+from django.db import connection, transaction
 
 from apps.accounts.domain.pin import generate_pin
 from apps.accounts.domain.role_rules import CASHIER, OWNER
@@ -85,9 +85,18 @@ def _reset_tenant() -> Tenant:
     )
     for model in RESET_ORDER:
         model.objects.for_tenant(tenant.id).delete()
+    _check_deleted_references_now()
     TenantSettings.objects.filter(tenant=tenant).delete()
     TenantSettings.objects.create(tenant=tenant, store_name=STORE_NAME)
     return tenant
+
+
+def _check_deleted_references_now() -> None:
+    """Foreign keys are deferred to commit, and child tables have no index that
+    starts with the parent id (every index starts with `tenant_id`). Checking
+    before the new rows go in keeps a `--large` rerun from scanning them too."""
+    with connection.cursor() as cursor:
+        cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
 
 
 def _create_counters(tenant: Tenant, counters: Sequence[SampleCounter]) -> dict[str, Counter]:
