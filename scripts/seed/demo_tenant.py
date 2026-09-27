@@ -18,6 +18,7 @@ from apps.accounts.use_cases.staff import set_pin
 from apps.catalog.domain.product_rules import name_key, normalize_product_name
 from apps.catalog.models import Category, PriceHistory, Product
 from apps.inventory.models import StockLevel
+from apps.shifts.models import Shift
 from apps.tenants.domain.device_token import generate_device_token, hash_device_token
 from apps.tenants.models import Counter, Device, DeviceCode, Tenant, TenantSettings
 from apps.tenants.use_cases.activation_codes import IssuedCode, issue_activation_code
@@ -35,6 +36,7 @@ from scripts.seed.sample_data import (
 
 # Children before parents, so no PROTECT foreign key blocks a delete.
 RESET_ORDER = (
+    Shift,
     PinDelay,
     StockLevel,
     PriceHistory,
