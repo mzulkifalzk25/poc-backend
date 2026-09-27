@@ -47,6 +47,19 @@ barcodes, costs 80 to 90 percent of price, some low and out of stock), and
 counters 004 to 040, each activated with its own device token. The generated
 catalogue is the same on every run.
 
+## Django admin
+
+```
+python manage.py create_platform_admin --email you@example.com   # asks for the password twice
+```
+
+Signs in at `/admin/` with that email and password. Only a platform admin can
+open the admin; store owners and cashiers are refused even with a correct
+password, and a platform admin cannot sign in to the store app. Running the
+command again for the same email resets the password. Store data is view-only
+in the admin (the app's own rules and activity log apply to every change);
+tenants and platform admin accounts can be edited.
+
 ## Layout
 
 Clean architecture per app under `apps/`: `domain/` (plain Python rules),
