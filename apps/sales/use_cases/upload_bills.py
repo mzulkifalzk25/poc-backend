@@ -1,12 +1,16 @@
+from collections import defaultdict
 from dataclasses import dataclass
+from decimal import Decimal
 
 from django.db import transaction
 
 from apps.accounts.repositories.users import UserRepository, user_repository
 from apps.catalog.repositories.sale_prices import SalePriceRepository, sale_price_repository
+from apps.inventory.models import StockMovement
+from apps.inventory.repositories.sale_stock import SaleStockRepository, sale_stock_repository
 from apps.sales.domain.bill_number import counter_code_of, sequence_of
 from apps.sales.domain.errors import BatchBusyError, BillIdTakenError
-from apps.sales.domain.flags import ordered_flags
+from apps.sales.domain.flags import NEGATIVE_STOCK, negative_stock_bills, ordered_flags
 from apps.sales.domain.totals import TaxRule, line_total
 from apps.sales.models import Bill, BillItem, Payment
 from apps.sales.repositories.bills import BillRepository, bill_repository
@@ -26,6 +30,7 @@ class BatchRepositories:
     counters: CounterRepository = counter_repository
     devices: DeviceRepository = device_repository
     settings: SettingsRepository = settings_repository
+    stock: SaleStockRepository = sale_stock_repository
 
 
 def upload_bills(batch: BillBatch, repos: BatchRepositories | None = None) -> list[BillResult]:
@@ -37,7 +42,10 @@ def upload_bills(batch: BillBatch, repos: BatchRepositories | None = None) -> li
             raise BatchBusyError
         ctx = _load_context(batch, repos)
         plans = [plan_bill(upload, ctx) for upload in batch.bills]
+        planned = [plan for plan in plans if isinstance(plan, PlannedBill)]
+        _flag_negative_stock(batch.tenant_id, planned, repos)
         results = [_store(plan, batch, ctx, repos) for plan in plans]
+        _write_stock(batch, plans, results, repos)
         _raise_sequence(batch, ctx, results, repos)
     return results
 
@@ -59,6 +67,57 @@ def _load_context(batch: BillBatch, repos: BatchRepositories) -> BatchContext:
         taken_bill_nos=repos.bills.taken_bill_nos(tenant_id, [b.bill_no for b in batch.bills]),
         seen_ids=set(),
     )
+
+
+def _flag_negative_stock(
+    tenant_id: int, planned: list[PlannedBill], repos: BatchRepositories
+) -> None:
+    quantities = [_quantities(plan) for plan in planned]
+    levels = repos.stock.lock_levels(tenant_id, [pid for qty in quantities for pid in qty])
+    for plan, negative in zip(planned, negative_stock_bills(levels, quantities), strict=True):
+        if negative:
+            plan.flags.add(NEGATIVE_STOCK)
+
+
+def _write_stock(
+    batch: BillBatch,
+    plans: list[BillResult | PlannedBill],
+    results: list[BillResult],
+    repos: BatchRepositories,
+) -> None:
+    created = [
+        plan
+        for plan, result in zip(plans, results, strict=True)
+        if isinstance(plan, PlannedBill) and result.status == CREATED
+    ]
+    deltas: dict[int, Decimal] = defaultdict(Decimal)
+    for plan in created:
+        for product_id, qty in _quantities(plan).items():
+            deltas[product_id] -= qty
+    movements = [move for plan in created for move in _sale_movements(plan, batch.tenant_id)]
+    if movements:
+        repos.stock.record(batch.tenant_id, movements, deltas, batch.received_at)
+
+
+def _quantities(plan: PlannedBill) -> dict[int, Decimal]:
+    return {line.product_id: line.qty for line in plan.lines}
+
+
+def _sale_movements(plan: PlannedBill, tenant_id: int) -> list[StockMovement]:
+    upload = plan.upload
+    return [
+        StockMovement(
+            tenant_id=tenant_id,
+            product_id=line.product_id,
+            type=StockMovement.Type.SALE,
+            qty_delta=-line.qty,
+            ref_type="bill",
+            ref_id=str(upload.id),
+            user_id=upload.cashier_id,
+            occurred_at=upload.sold_at,
+        )
+        for line in plan.lines
+    ]
 
 
 def _store(
