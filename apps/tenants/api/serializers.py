@@ -44,8 +44,8 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
 
 
 class CounterSerializer(serializers.ModelSerializer):
-    """Device fields come from `counters_with_device_state`; a counter read
-    without those annotations (just created) has no PC and no code yet."""
+    """Device fields come from the counter repository's `with_device_state`; a
+    counter read without those annotations (just created) has no PC and no code yet."""
 
     status = serializers.SerializerMethodField()
     code_expires_at = serializers.SerializerMethodField()
