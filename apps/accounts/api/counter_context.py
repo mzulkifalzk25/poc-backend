@@ -40,6 +40,15 @@ class IsCounterDeviceOrCashier(BasePermission):
         return isinstance(request.user, CounterDevice) or _bound_device_id(request) is not None
 
 
+class IsCounterCashier(BasePermission):
+    """C: a cashier signed in on an activated PC."""
+
+    message = "A cashier signed in on a counter PC is required."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return _bound_device_id(request) is not None
+
+
 def counter_context(request: Request) -> CounterContext:
     user = request.user
     if isinstance(user, CounterDevice):
