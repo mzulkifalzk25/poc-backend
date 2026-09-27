@@ -164,3 +164,102 @@ class HeldBill(TenantModel):
 
     def __str__(self) -> str:
         return self.title or str(self.id)
+
+
+class Return(TenantModel):
+    """A customer bringing items back, uploaded from a counter. The id is the
+    client UUID. `refund_total` is the amount paid out as the counter sent it;
+    `original_bill` is set when the typed bill number is found."""
+
+    class Reason(models.TextChoices):
+        EXPIRED_DAMAGED = "expired_damaged"
+        WRONG_ITEM = "wrong_item"
+        CHANGED_MIND = "changed_mind"
+        PRICE_ERROR = "price_error"
+
+    id = models.UUIDField(primary_key=True)
+    counter = models.ForeignKey(
+        Counter, on_delete=models.PROTECT, related_name="returns", db_index=False
+    )
+    shift_id = models.UUIDField()
+    cashier = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="returns", db_index=False
+    )
+    original_bill_no = models.CharField(max_length=20, null=True, blank=True)
+    original_bill = models.ForeignKey(
+        Bill,
+        on_delete=models.PROTECT,
+        related_name="returns",
+        null=True,
+        blank=True,
+        db_index=False,
+    )
+    reason = models.CharField(max_length=20, choices=Reason.choices)
+    restock = models.BooleanField()
+    refund_method = models.CharField(max_length=10, choices=Payment.Method.choices)
+    paid_from_drawer = models.BooleanField()
+    refund_total = _money()
+    returned_at = models.DateTimeField()
+    received_at = models.DateTimeField()
+    flags = ArrayField(models.CharField(max_length=30), default=list, blank=True)
+    rolled_up_at = models.DateTimeField(null=True, blank=True)
+    device_id = models.BigIntegerField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["tenant_id", "original_bill"], name="return_bill_idx"),
+            models.Index(fields=["tenant_id", "shift_id"], name="return_shift_idx"),
+            models.Index(fields=["tenant_id", "cashier", "returned_at"], name="return_cashier_idx"),
+            models.Index(
+                fields=["tenant_id", "received_at"],
+                condition=models.Q(rolled_up_at__isnull=True),
+                name="return_rollup_pending_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Return {self.id}"
+
+
+class ReturnItem(TenantModel):
+    """One row per product per return. `bill_item` is set when the product is
+    on the found bill; `cost_snapshot` keeps profit right either way."""
+
+    class PriceSource(models.TextChoices):
+        PAID = "paid"
+        CURRENT = "current"
+
+    return_record = models.ForeignKey(
+        Return, on_delete=models.PROTECT, related_name="items", db_index=False
+    )
+    product = models.ForeignKey(
+        Product, on_delete=models.PROTECT, related_name="return_items", db_index=False
+    )
+    bill_item = models.ForeignKey(
+        BillItem,
+        on_delete=models.PROTECT,
+        related_name="return_items",
+        null=True,
+        blank=True,
+        db_index=False,
+    )
+    qty = _quantity()
+    price_source = models.CharField(max_length=10, choices=PriceSource.choices)
+    unit_price = _money()
+    refund_amount = _money()
+    tax_refund = _money()
+    cost_snapshot = _money()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_id", "return_record", "product"], name="uniq_return_item_product"
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["tenant_id", "bill_item"], name="return_item_bill_item_idx"),
+            models.Index(fields=["tenant_id", "product"], name="return_item_product_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.qty} of {self.product_id}"
