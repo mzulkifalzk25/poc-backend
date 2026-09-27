@@ -12,3 +12,7 @@ class BillNotFoundError(Exception):
 
 class HeldBillIdTakenError(Exception):
     """The held-bill UUID belongs to another counter or tenant."""
+
+
+class ReturnIdTakenError(Exception):
+    """The return UUID is already stored."""
