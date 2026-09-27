@@ -11,7 +11,15 @@ GLOBAL_BY_DESIGN = {
     "uniq_device_live_per_counter",
     "product_name_trgm_idx",
 }
-APP_TABLE_PREFIXES = ("accounts_", "audit_", "catalog_", "inventory_", "shifts_", "tenants_")
+APP_TABLE_PREFIXES = (
+    "accounts_",
+    "audit_",
+    "catalog_",
+    "inventory_",
+    "sales_",
+    "shifts_",
+    "tenants_",
+)
 
 _INDEXES_SQL = """
 SELECT i.relname, t.relname, first_col.attname
