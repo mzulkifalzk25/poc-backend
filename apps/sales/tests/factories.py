@@ -8,7 +8,7 @@ from django.utils import timezone
 from apps.accounts.models import User
 from apps.catalog.models import Category, Product
 from apps.inventory.models import StockLevel
-from apps.sales.models import Bill
+from apps.sales.models import Bill, Return
 from apps.tenants.models import Counter
 
 
@@ -53,5 +53,24 @@ def make_bill(counter: Counter, cashier: User, bill_no: str = "002000001", **ext
         tax_amount=Decimal("0.00"),
         rounding=Decimal("0.00"),
         total=Decimal("620.00"),
+        **extra,
+    )
+
+
+def make_return(counter: Counter, cashier: User, **extra) -> Return:
+    now = timezone.now()
+    return Return.objects.create(
+        id=extra.pop("id", uuid4()),
+        tenant_id=counter.tenant_id,
+        counter=counter,
+        shift_id=extra.pop("shift_id", uuid4()),
+        cashier=cashier,
+        reason=extra.pop("reason", "changed_mind"),
+        restock=extra.pop("restock", True),
+        refund_method=extra.pop("refund_method", "cash"),
+        paid_from_drawer=extra.pop("paid_from_drawer", True),
+        refund_total=Decimal(extra.pop("refund_total", "620.00")),
+        returned_at=extra.pop("returned_at", now),
+        received_at=now,
         **extra,
     )
