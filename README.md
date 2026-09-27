@@ -49,16 +49,19 @@ catalogue is the same on every run.
 
 ## Django admin
 
+The Django admin at `/admin/` is for the product maintainer only: exactly one
+account, whose email is `DJANGO_ADMIN_EMAIL` in `.env`. Store owners and
+cashiers use the store app; they can never sign in to the Django admin, even
+with a correct password, and the Django admin cannot sign in to the store app.
+With `DJANGO_ADMIN_EMAIL` empty, nobody can sign in.
+
 ```
-python manage.py create_platform_admin --email you@example.com   # asks for the password twice
+python manage.py create_django_admin    # asks for the password twice
 ```
 
-Signs in at `/admin/` with that email and password. Only a platform admin can
-open the admin; store owners and cashiers are refused even with a correct
-password, and a platform admin cannot sign in to the store app. Running the
-command again for the same email resets the password. Store data is view-only
-in the admin (the app's own rules and activity log apply to every change);
-tenants and platform admin accounts can be edited.
+Creates that one account, or resets its password when run again. Store data
+is view-only in the admin (the app's own rules and activity log apply to every
+change); tenants and the admin's own name and active flag can be edited.
 
 ## Layout
 
