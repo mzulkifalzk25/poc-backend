@@ -22,6 +22,8 @@ class CategoryRepository(Protocol):
 
     def delete(self, category: Category) -> None: ...
 
+    def active_for_sync(self, tenant_id: int) -> list[Category]: ...
+
 
 class DjangoCategoryRepository:
     def list_with_counts(self, tenant_id: int) -> list[Category]:
@@ -53,6 +55,11 @@ class DjangoCategoryRepository:
 
     def delete(self, category: Category) -> None:
         category.delete()
+
+    def active_for_sync(self, tenant_id: int) -> list[Category]:
+        return list(
+            Category.objects.for_tenant(tenant_id).filter(is_active=True).order_by("sort_order")
+        )
 
 
 category_repository = DjangoCategoryRepository()

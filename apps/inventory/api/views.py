@@ -8,9 +8,7 @@ from apps.accounts.api.counter_context import (
     counter_context,
 )
 from apps.core.api.sync import SyncQuerySerializer
-from apps.core.domain.sync_cursor import caught_up_cursor
-from apps.core.repositories.keyset import cursor_of, rows_after
-from apps.inventory.models import StockLevel
+from apps.inventory.use_cases.stock_sync import stock_since
 
 
 class StockSyncView(APIView):
@@ -25,12 +23,12 @@ class StockSyncView(APIView):
         query.is_valid(raise_exception=True)
         since = query.validated_data.get("since")
         tenant_id = counter_context(request).tenant_id
-        rows = list(rows_after(StockLevel.objects.for_tenant(tenant_id), since))
-        last = cursor_of(rows[-1]) if rows else None
-        next_since = caught_up_cursor(last, since, timezone.now())
+        sync = stock_since(tenant_id, since, timezone.now())
         return Response(
             {
-                "levels": [{"product_id": row.product_id, "qty": str(row.qty)} for row in rows],
-                "next_since": next_since.encode(),
+                "levels": [
+                    {"product_id": row.product_id, "qty": str(row.qty)} for row in sync.levels
+                ],
+                "next_since": sync.next_since.encode(),
             }
         )

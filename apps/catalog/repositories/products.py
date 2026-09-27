@@ -9,6 +9,8 @@ from django.db.models.functions import Coalesce
 from apps.accounts.models import User
 from apps.catalog.domain.errors import BarcodeExistsError
 from apps.catalog.models import Category, PriceHistory, Product
+from apps.core.domain.cursor import Cursor
+from apps.core.repositories.keyset import rows_after
 from apps.inventory.models import StockLevel
 
 _LIVE_BARCODE_CONSTRAINT = "uniq_product_live_barcode"
@@ -28,6 +30,8 @@ class ProductRepository(Protocol):
     def any_in_category(self, category: Category) -> bool: ...
 
     def move_category(self, category: Category, target: Category, now: datetime) -> int: ...
+
+    def changed_after(self, tenant_id: int, since: Cursor | None, limit: int) -> list[Product]: ...
 
 
 class DjangoProductRepository:
@@ -71,6 +75,10 @@ class DjangoProductRepository:
         update skips auto_now) so counters pick the change up in sync."""
         products = Product.objects.for_tenant(category.tenant_id).filter(category=category)
         return products.update(category=target, updated_at=now)
+
+    def changed_after(self, tenant_id: int, since: Cursor | None, limit: int) -> list[Product]:
+        """Archived rows included, in `(updated_at, id)` order."""
+        return list(rows_after(Product.objects.for_tenant(tenant_id), since)[:limit])
 
 
 def _with_stock(tenant_id: int) -> QuerySet[Product]:

@@ -8,9 +8,8 @@ from apps.accounts.api.counter_context import (
     counter_context,
 )
 from apps.catalog.models import Category, Product
+from apps.catalog.use_cases.sync import product_sync_page
 from apps.core.api.sync import SyncQuerySerializer
-from apps.core.domain.sync_cursor import caught_up_cursor
-from apps.core.repositories.keyset import cursor_of, rows_after
 
 
 def present_sync_product(product: Product) -> dict:
@@ -49,17 +48,12 @@ class ProductSyncView(APIView):
         query.is_valid(raise_exception=True)
         since, page_size = query.validated_data.get("since"), query.validated_data["page_size"]
         tenant_id = counter_context(request).tenant_id
-        rows = list(rows_after(Product.objects.for_tenant(tenant_id), since)[: page_size + 1])
-        has_more = len(rows) > page_size
-        rows = rows[:page_size]
-        last = cursor_of(rows[-1]) if rows else None
-        next_since = last if has_more else caught_up_cursor(last, since, timezone.now())
-        categories = Category.objects.for_tenant(tenant_id).filter(is_active=True)
+        page = product_sync_page(tenant_id, since, page_size, timezone.now())
         return Response(
             {
-                "products": [present_sync_product(product) for product in rows],
-                "categories": [present_sync_category(c) for c in categories.order_by("sort_order")],
-                "next_since": next_since.encode(),
-                "has_more": has_more,
+                "products": [present_sync_product(product) for product in page.products],
+                "categories": [present_sync_category(c) for c in page.categories],
+                "next_since": page.next_since.encode(),
+                "has_more": page.has_more,
             }
         )
