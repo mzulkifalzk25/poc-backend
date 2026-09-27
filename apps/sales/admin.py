@@ -1,7 +1,7 @@
 from django.contrib import admin
 
 from apps.core.read_only_admin import ReadOnlyAdmin
-from apps.sales.models import Bill, BillItem, HeldBill, Payment
+from apps.sales.models import Bill, BillItem, HeldBill, Payment, Return, ReturnItem
 
 
 class BillItemInline(admin.TabularInline):
@@ -21,6 +21,10 @@ class PaymentInline(BillItemInline):
     model = Payment
 
 
+class ReturnItemInline(BillItemInline):
+    model = ReturnItem
+
+
 @admin.register(Bill)
 class BillAdmin(ReadOnlyAdmin):
     list_display = ("bill_no", "counter", "cashier", "total", "status", "flags", "sold_at")
@@ -33,3 +37,20 @@ class BillAdmin(ReadOnlyAdmin):
 class HeldBillAdmin(ReadOnlyAdmin):
     list_display = ("title", "counter", "cashier", "status", "client_updated_at")
     list_filter = ("tenant_id", "status")
+
+
+@admin.register(Return)
+class ReturnAdmin(ReadOnlyAdmin):
+    list_display = (
+        "id",
+        "original_bill_no",
+        "counter",
+        "cashier",
+        "refund_method",
+        "refund_total",
+        "flags",
+        "returned_at",
+    )
+    list_filter = ("tenant_id", "refund_method", "reason")
+    search_fields = ("original_bill_no",)
+    inlines = (ReturnItemInline,)

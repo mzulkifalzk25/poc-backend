@@ -5,6 +5,8 @@ from django.urls import reverse
 
 from apps.accounts.models import User
 from apps.accounts.use_cases.django_admin import save_django_admin
+from apps.sales.tests.factories import make_return
+from apps.tenants.models import Counter
 
 EMAIL = "admin@example.com"
 PASSWORD = "Blue-Kettle-Morning-42"
@@ -73,3 +75,13 @@ def test_store_staff_are_view_only(signed_in):
     assert response.status_code == 403
     owner.refresh_from_db()
     assert owner.full_name == "Sana Ahmed" and owner.is_active
+
+
+def test_returns_are_view_only(signed_in):
+    counter = Counter.objects.create(tenant_id=1, name="Counter 2", code="002")
+    cashier = User.objects.create(tenant_id=1, full_name="Zainab Khan", role="cashier")
+    ret = make_return(counter, cashier)
+
+    assert signed_in.get(reverse("admin:sales_return_add")).status_code == 403
+    assert signed_in.get(reverse("admin:sales_return_change", args=[ret.id])).status_code == 200
+    assert signed_in.post(reverse("admin:sales_return_delete", args=[ret.id])).status_code == 403
