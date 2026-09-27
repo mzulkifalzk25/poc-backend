@@ -117,7 +117,7 @@ def _present_lookup(found: BillLookup) -> dict:
                 "name": line.name,
                 "qty": str(line.qty),
                 "unit_price": str(line.unit_price),
-                "returnable_qty": str(line.returnable_qty),
+                "returnable_qty": f"{line.returnable_qty:.3f}",
             }
             for line in found.lines
         ],
