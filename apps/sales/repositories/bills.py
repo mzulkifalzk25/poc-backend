@@ -5,6 +5,7 @@ from uuid import UUID
 from django.db import IntegrityError, connection, transaction
 
 from apps.sales.domain.errors import BillIdTakenError
+from apps.sales.domain.flags import BILL_NO_CONFLICT
 from apps.sales.models import Bill, BillItem, Payment
 
 # First key of the two-key advisory lock taken per counter for a bill batch.
@@ -20,6 +21,10 @@ class BillRepository(Protocol):
     def taken_bill_nos(self, tenant_id: int, bill_nos: Iterable[str]) -> set[str]: ...
 
     def add(self, bill: Bill, items: list[BillItem], payment: Payment) -> None: ...
+
+    def by_bill_no(self, tenant_id: int, bill_no: str) -> Bill | None: ...
+
+    def items_of(self, bill: Bill) -> list[BillItem]: ...
 
 
 class DjangoBillRepository:
@@ -50,6 +55,17 @@ class DjangoBillRepository:
             if any(name in str(error) for name in _ID_CONSTRAINTS):
                 raise BillIdTakenError from None
             raise
+
+    def by_bill_no(self, tenant_id: int, bill_no: str) -> Bill | None:
+        """The bill that owns the number; a flagged copy only when there is none."""
+        bills = Bill.objects.for_tenant(tenant_id).filter(bill_no=bill_no)
+        owner = bills.exclude(flags__contains=[BILL_NO_CONFLICT]).first()
+        return owner or bills.order_by("-received_at").first()
+
+    def items_of(self, bill: Bill) -> list[BillItem]:
+        return list(
+            BillItem.objects.for_tenant(bill.tenant_id).filter(bill=bill).order_by("line_no")
+        )
 
 
 bill_repository = DjangoBillRepository()

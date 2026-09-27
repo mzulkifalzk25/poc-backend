@@ -129,3 +129,38 @@ class Payment(TenantModel):
 
     def __str__(self) -> str:
         return f"{self.method} {self.amount}"
+
+
+class HeldBill(TenantModel):
+    """Best-effort server mirror of a counter's held bills. The id is the
+    client UUID; `client_updated_at` is the counter's own change time, so the
+    newest version wins whatever order uploads arrive in."""
+
+    class Status(models.TextChoices):
+        HELD = "held"
+        RECALLED = "recalled"
+        DELETED = "deleted"
+        ABANDONED = "abandoned"
+
+    id = models.UUIDField(primary_key=True)
+    counter = models.ForeignKey(
+        Counter, on_delete=models.PROTECT, related_name="held_bills", db_index=False
+    )
+    shift_id = models.UUIDField(null=True, blank=True)
+    cashier = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="held_bills",
+        db_index=False,
+    )
+    title = models.CharField(max_length=100, blank=True, default="")
+    payload = models.JSONField(default=dict)
+    total = _money()
+    status = models.CharField(max_length=10, choices=Status.choices)
+    client_updated_at = models.DateTimeField()
+
+    class Meta:
+        indexes = [models.Index(fields=["tenant_id", "counter"], name="held_bill_counter_idx")]
+
+    def __str__(self) -> str:
+        return self.title or str(self.id)

@@ -5,11 +5,13 @@ from rest_framework.views import APIView
 
 from apps.accounts.api.counter_context import (
     COUNTER_AUTHENTICATION,
+    IsCounterCashier,
     IsCounterDeviceOrCashier,
     counter_context,
 )
 from apps.core.api.exceptions import ApiError
-from apps.sales.domain.errors import BatchBusyError
+from apps.sales.domain.errors import BatchBusyError, BillNotFoundError
+from apps.sales.use_cases.bill_lookup import BillLookup, lookup_bill
 from apps.sales.use_cases.bill_upload import BillBatch, BillResult, rejected
 from apps.sales.use_cases.upload_bills import upload_bills
 
@@ -82,4 +84,41 @@ def _present(result: BillResult) -> dict:
         "bill_no": result.bill_no,
         "flags": result.flags,
         "errors": result.errors,
+    }
+
+
+class BillLookupView(APIView):
+    authentication_classes = COUNTER_AUTHENTICATION
+    permission_classes = [IsCounterCashier]
+
+    def get(self, request):
+        text = request.query_params.get("bill_no", "")
+        if not text.strip():
+            raise ApiError(
+                code="validation_error",
+                message="Validation failed.",
+                fields={"bill_no": ["This field is required."]},
+            )
+        try:
+            found = lookup_bill(counter_context(request).tenant_id, text)
+        except BillNotFoundError:
+            raise ApiError(
+                code="bill_not_found", message="No bill has this number.", status_code=404
+            ) from None
+        return Response(_present_lookup(found))
+
+
+def _present_lookup(found: BillLookup) -> dict:
+    return {
+        "bill_no": found.bill_no,
+        "lines": [
+            {
+                "product_id": line.product_id,
+                "name": line.name,
+                "qty": str(line.qty),
+                "unit_price": str(line.unit_price),
+                "returnable_qty": str(line.returnable_qty),
+            }
+            for line in found.lines
+        ],
     }
