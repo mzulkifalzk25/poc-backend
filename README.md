@@ -28,11 +28,17 @@ python manage.py makemigrations --check --dry-run
 ## Seed data
 
 ```
-python scripts/seed_sample_data.py            # small POC data set (add --large for 18,462 products, --history for sample bills)
+python scripts/seed_sample_data.py            # small POC data set
 ```
 
-`scripts/seed_sample_data.py` is added in a later step; the flags land with
-the steps that need them.
+Creates the demo store "Fresh Basket Mart" (owner `sana`, cashiers Zainab
+Khan, Bilal Raza, Hina Malik and deactivated Usman Tariq, counters 001 and
+002 activated, 003 not activated, 7 categories, 10 products). It prints the
+owner password, the cashier PINs, the device tokens of counters 001 and 002
+(`Authorization: Device <token>`) and an activation code for counter 003
+(single use, 15 minutes). Safe to run twice: each run resets only the demo
+tenant and prints new values. Activity-log entries from earlier runs stay
+(the log is append-only).
 
 ## Layout
 
