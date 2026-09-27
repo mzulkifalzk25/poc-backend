@@ -28,6 +28,7 @@ INSTALLED_APPS = [
     "apps.inventory",
     "apps.shifts",
     "apps.sales",
+    "apps.reports",
     "rest_framework_simplejwt.token_blacklist",
 ]
 

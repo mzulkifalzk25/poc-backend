@@ -47,6 +47,30 @@ barcodes, costs 80 to 90 percent of price, some low and out of stock), and
 counters 004 to 040, each activated with its own device token. The generated
 catalogue is the same on every run.
 
+## Report rollup
+
+Reports never read raw bills. The rollup adds uploaded bills to the pre-summed
+tables (`sales_hourly`, `sales_daily`, `sales_daily_product`,
+`sales_daily_cashier`), bucketed by the time of sale in the store's time zone.
+
+```
+python manage.py run_rollup                   # one pass: everything waiting now
+python manage.py run_rollup --loop            # a pass every 30 s (--interval to change)
+```
+
+Safe to run twice: each bill is counted once. Only one runner works at a time
+(a second one exits with "Another rollup is running."). In production run the
+loop under systemd, for example:
+
+```
+[Service]
+ExecStart=/srv/poc-backend/.venv/bin/python manage.py run_rollup --loop
+WorkingDirectory=/srv/poc-backend
+Restart=always
+```
+
+SIGTERM (systemctl stop) finishes the current pass, then stops.
+
 ## Django admin
 
 The Django admin at `/admin/` is for the product maintainer only: exactly one
