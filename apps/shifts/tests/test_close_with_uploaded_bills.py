@@ -6,6 +6,7 @@ from apps.sales.tests.factories import make_product
 from apps.sales.tests.payloads import BATCH_URL, batch, bill, line
 
 OPEN_URL = "/api/v1/shifts/open"
+RETURNS_URL = "/api/v1/returns/batch"
 
 
 def _open(pc, counter, cashier) -> str:
@@ -75,4 +76,44 @@ def test_sales_the_server_has_not_seen_are_a_mismatch(pc, tenant, counter, cashi
         "5050.00",
         "50.00",
         True,
+    )
+
+
+def _refund(product, shift_id, method: str, amount: str, qty: str = "1.000") -> dict:
+    return {
+        "id": str(uuid4()),
+        "shift_id": shift_id,
+        "lines": [{"product_id": product.id, "qty": qty}],
+        "reason": "changed_mind",
+        "restock": True,
+        "refund": {"method": method, "amount": amount},
+        "returned_at": "2026-09-27T07:52:10Z",
+    }
+
+
+@pytest.mark.django_db
+def test_only_the_shifts_cash_refunds_come_out_of_expected_cash(pc, tenant, counter, cashier):
+    oil = make_product(tenant.id, price="50.00")
+    shift_id = _open(pc, counter, cashier)
+    pc.post(BATCH_URL, batch(counter.id, _sale(cashier.id, oil, shift_id, 1, qty="5.000")),
+            format="json")  # fmt: skip
+    refunds = [
+        {**_refund(oil, shift_id, "cash", "100.00", "2.000"), "cashier_id": cashier.id},
+        {**_refund(oil, shift_id, "card", "50.00"), "cashier_id": cashier.id},
+        {**_refund(oil, str(uuid4()), "cash", "50.00"), "cashier_id": cashier.id},
+    ]
+    pc.post(RETURNS_URL, {"returns": refunds}, format="json")
+
+    result = _close(pc, shift_id, cashier, "5150.00", {"bills": 1, "cash": "250.00"})
+
+    assert (result["expected_cash"], result["difference"], result["mismatch"]) == (
+        "5150.00",
+        "0.00",
+        False,
+    )
+    summary = result["server_summary"]
+    assert (summary["refund_count"], summary["refund_amount"], summary["cash_refunds"]) == (
+        2,
+        "150.00",
+        "100.00",
     )
