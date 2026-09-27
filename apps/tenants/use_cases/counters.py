@@ -24,6 +24,12 @@ def counters_table(
     return repo.with_device_state(tenant_id, now)
 
 
+def counter_of(
+    tenant_id: int, counter_id: int, repo: CounterRepository = counter_repository
+) -> Counter:
+    return repo.get(tenant_id, counter_id)
+
+
 def create_counter(
     tenant_id: int,
     user_id: int,

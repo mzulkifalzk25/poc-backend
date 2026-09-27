@@ -4,7 +4,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.models import User
-from apps.accounts.repositories.staff import staff_with_pin_delay
 from apps.accounts.use_cases.pin_admin import NotACashierError, reset_pin, unlock_cashier
 from apps.accounts.use_cases.staff import (
     Actor,
@@ -12,6 +11,8 @@ from apps.accounts.use_cases.staff import (
     StaffConflictError,
     StaffInvalidError,
     create_staff,
+    find_staff,
+    staff_rows,
     update_staff,
 )
 from apps.core.api.exceptions import ApiError
@@ -47,14 +48,14 @@ def actor_of(request) -> Actor:
 
 
 def tenant_user(request, user_id: int) -> User:
-    user = User.objects.for_tenant(request.user.tenant_id).filter(id=user_id).first()
+    user = find_staff(request.user.tenant_id, user_id)
     if user is None:
         raise ApiError(code="not_found", message="User not found.", status_code=404)
     return user
 
 
 def annotated_user(request, user_id: int) -> User:
-    return staff_with_pin_delay(request.user.tenant_id, timezone.now()).get(id=user_id)
+    return staff_rows(request.user.tenant_id, timezone.now(), {}).get(id=user_id)
 
 
 class StaffListCreateView(ListCreateAPIView):
@@ -64,8 +65,7 @@ class StaffListCreateView(ListCreateAPIView):
     def get_queryset(self):
         filters = StaffFilterSerializer(data=self.request.query_params)
         filters.is_valid(raise_exception=True)
-        queryset = staff_with_pin_delay(self.request.user.tenant_id, timezone.now())
-        return _apply_filters(queryset, filters.validated_data).order_by("full_name", "id")
+        return staff_rows(self.request.user.tenant_id, timezone.now(), filters.validated_data)
 
     def list(self, request, *args, **kwargs):
         page = self.paginate_queryset(self.get_queryset())
@@ -93,16 +93,6 @@ class StaffDetailView(APIView):
         except (StaffConflictError, StaffInvalidError) as error:
             raise staff_error(error) from None
         return Response(present_staff(annotated_user(request, user_id)))
-
-
-def _apply_filters(queryset, filters: dict):
-    if "role" in filters:
-        queryset = queryset.filter(role=filters["role"])
-    if "status" in filters:
-        queryset = queryset.filter(is_active=filters["status"] == "active")
-    if "counter" in filters:
-        queryset = queryset.filter(default_counter_id=filters["counter"])
-    return queryset
 
 
 def _not_a_cashier() -> ApiError:

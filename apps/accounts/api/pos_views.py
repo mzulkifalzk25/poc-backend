@@ -13,7 +13,7 @@ from apps.core.api.exceptions import ApiError
 from apps.tenants.api.device_auth import CounterDevice, DeviceAuthentication
 from apps.tenants.api.permissions import IsCounterDevice
 from apps.tenants.api.serializers import TenantSettingsSerializer
-from apps.tenants.models import Counter
+from apps.tenants.use_cases.counters import counter_of
 from apps.tenants.use_cases.settings import tenant_settings
 
 from .counter_context import COUNTER_AUTHENTICATION, IsCounterDeviceOrCashier, counter_context
@@ -133,7 +133,7 @@ class BootstrapView(APIView):
 
     def get(self, request):
         context = counter_context(request)
-        counter = Counter.objects.for_tenant(context.tenant_id).get(id=context.counter_id)
+        counter = counter_of(context.tenant_id, context.counter_id)
         settings = tenant_settings(context.tenant_id)
         roster = active_roster(context.tenant_id)
         return Response(

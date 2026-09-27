@@ -1,9 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from apps.accounts.domain.role_rules import CASHIER
-from apps.accounts.models import User
-from apps.tenants.models import Device
+from apps.accounts.repositories.users import UserRepository, user_repository
+from apps.tenants.repositories.devices import DeviceRepository, device_repository
 
 
 class UnknownCashierError(Exception):
@@ -19,17 +18,15 @@ class Heartbeat:
     cashier_id: int | None
 
 
-def record_heartbeat(beat: Heartbeat, now: datetime) -> None:
+def record_heartbeat(
+    beat: Heartbeat,
+    now: datetime,
+    users: UserRepository = user_repository,
+    devices: DeviceRepository = device_repository,
+) -> None:
     """Plain updates: `users.updated_at` must not move, or every counter would
     download the people list again on each beat."""
     if beat.cashier_id is not None:
-        updated = (
-            User.objects.for_tenant(beat.tenant_id)
-            .filter(id=beat.cashier_id, role=CASHIER)
-            .update(last_active_at=now)
-        )
-        if not updated:
+        if not users.touch_cashier(beat.tenant_id, beat.cashier_id, now):
             raise UnknownCashierError
-    Device.objects.for_tenant(beat.tenant_id).filter(id=beat.device_id).update(
-        last_seen_at=now, unsynced_count=beat.unsynced_count, app_version=beat.app_version
-    )
+    devices.record_beat(beat.tenant_id, beat.device_id, now, beat.unsynced_count, beat.app_version)

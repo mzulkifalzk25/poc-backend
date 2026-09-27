@@ -1,10 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from django.db.models import OuterRef, Subquery
-
-from apps.accounts.domain.role_rules import CASHIER
-from apps.accounts.models import PinDelay, User
+from apps.accounts.models import User
+from apps.accounts.repositories.users import UserRepository, user_repository
 
 # Rows written in the last minute are sent again next time, so a change that
 # commits late with an earlier `updated_at` is never missed.
@@ -17,29 +15,21 @@ class PeopleDelta:
     next_since: datetime
 
 
-def active_roster(tenant_id: int) -> list[User]:
-    return list(
-        User.objects.for_tenant(tenant_id)
-        .filter(role=CASHIER, is_active=True)
-        .order_by("full_name", "id")
-    )
+def active_roster(tenant_id: int, users: UserRepository = user_repository) -> list[User]:
+    return users.active_roster(tenant_id)
 
 
 def people_since(
-    tenant_id: int, counter_id: int, since: datetime | None, now: datetime
+    tenant_id: int,
+    counter_id: int,
+    since: datetime | None,
+    now: datetime,
+    users: UserRepository = user_repository,
 ) -> PeopleDelta:
     """A full sync (no `since`) sends active cashiers only; a delta also sends
     deactivated ones so the counter can remove them."""
-    cashiers = User.objects.for_tenant(tenant_id).filter(role=CASHIER)
-    if since is None:
-        cashiers = cashiers.filter(is_active=True)
-    else:
-        cashiers = cashiers.filter(updated_at__gt=since)
-    unlocks = PinDelay.objects.filter(
-        tenant_id=tenant_id, counter_id=counter_id, user_id=OuterRef("pk")
-    )
-    cashiers = cashiers.annotate(unlocked_at=Subquery(unlocks.values("unlocked_at")[:1]))
+    cashiers = users.cashiers_for_sync(tenant_id, counter_id, since)
     next_since = now - SYNC_OVERLAP
     if since is not None:
         next_since = max(since, next_since)
-    return PeopleDelta(list(cashiers.order_by("updated_at", "id")), next_since)
+    return PeopleDelta(cashiers, next_since)

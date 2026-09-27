@@ -7,7 +7,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 
 from apps.audit.use_cases.record_activity import ActivityEntry, record_failure
 from apps.core.api.exceptions import ApiError
-from apps.tenants.models import Tenant
+from apps.tenants.use_cases.tenants import tenant_of
 
 from ..use_cases.login import (
     InvalidCredentials,
@@ -49,7 +49,7 @@ class LoginView(APIView):
                 status_code=401,
             ) from None
 
-        tenant = Tenant.objects.get(id=user.tenant_id)
+        tenant = tenant_of(user.tenant_id)
         refresh = RefreshToken.for_user(user)
 
         return Response(
@@ -108,7 +108,7 @@ class MeView(APIView):
 
     def get(self, request):
         user = request.user
-        tenant = Tenant.objects.get(id=user.tenant_id)
+        tenant = tenant_of(user.tenant_id)
         return Response(
             {
                 "user": present_user(user),

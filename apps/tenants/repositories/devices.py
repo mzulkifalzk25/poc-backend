@@ -15,6 +15,10 @@ class DeviceRepository(Protocol):
 
     def add(self, counter: Counter, token_hash: str, app_version: str, now: datetime) -> Device: ...
 
+    def record_beat(
+        self, tenant_id: int, device_id: int, now: datetime, unsynced_count: int, app_version: str
+    ) -> None: ...
+
 
 class DjangoDeviceRepository:
     def by_token_hash(self, token_hash: str) -> Device | None:
@@ -45,6 +49,13 @@ class DjangoDeviceRepository:
             token_hash=token_hash,
             app_version=app_version,
             last_seen_at=now,
+        )
+
+    def record_beat(
+        self, tenant_id: int, device_id: int, now: datetime, unsynced_count: int, app_version: str
+    ) -> None:
+        Device.objects.for_tenant(tenant_id).filter(id=device_id).update(
+            last_seen_at=now, unsynced_count=unsynced_count, app_version=app_version
         )
 
 

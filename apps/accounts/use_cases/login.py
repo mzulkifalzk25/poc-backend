@@ -1,7 +1,5 @@
-from django.db.models import Q
-
-from apps.accounts.domain.role_rules import MANAGER, OWNER
 from apps.accounts.models import User
+from apps.accounts.repositories.users import UserRepository, user_repository
 
 
 class InvalidCredentials(Exception):
@@ -13,7 +11,9 @@ class InvalidCredentials(Exception):
         self.user = user
 
 
-def authenticate_owner_or_manager(login: str, password: str) -> User:
+def authenticate_owner_or_manager(
+    login: str, password: str, users: UserRepository = user_repository
+) -> User:
     """Look up an owner or manager by email or username, case-insensitively.
 
     The contract's `/auth/login` request carries no tenant id (it is public,
@@ -23,7 +23,7 @@ def authenticate_owner_or_manager(login: str, password: str) -> User:
     hit; ambiguous or absent matches get the same invalid_credentials error
     as a wrong password, same as a role mismatch.
     """
-    user = find_login_account(login)
+    user = find_login_account(login, users)
     if user is None:
         raise InvalidCredentials
     if not user.check_password(password):
@@ -31,12 +31,6 @@ def authenticate_owner_or_manager(login: str, password: str) -> User:
     return user
 
 
-def find_login_account(login: str) -> User | None:
-    candidates = list(
-        User.objects.filter(
-            Q(email__iexact=login.strip()) | Q(username__iexact=login.strip()),
-            role__in=(OWNER, MANAGER),
-            is_active=True,
-        )[:2]
-    )
+def find_login_account(login: str, users: UserRepository = user_repository) -> User | None:
+    candidates = users.login_candidates(login)
     return candidates[0] if len(candidates) == 1 else None

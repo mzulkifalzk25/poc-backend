@@ -1,29 +1,21 @@
 from dataclasses import dataclass
+from datetime import datetime
 
 from django.conf import settings
 from django.contrib.auth.hashers import make_password
-from django.db import IntegrityError, transaction
+from django.db import transaction
+from django.db.models import QuerySet
 
 from apps.accounts.domain.names import normalize_full_name
 from apps.accounts.domain.pin import make_pin_verifier, new_salt
 from apps.accounts.domain.role_rules import CASHIER, RoleFields, RoleRuleError, validate_role_fields
+from apps.accounts.domain.staff_errors import StaffConflictError
 from apps.accounts.models import User
+from apps.accounts.repositories.users import UserRepository, user_repository
 from apps.audit.use_cases.record_activity import ActivityEntry, record_activity
-from apps.tenants.models import Counter
+from apps.tenants.repositories.counters import CounterRepository, counter_repository
 
-_UNIQUE_CONSTRAINTS = {
-    "uniq_user_tenant_cashier_name_lower": ("name_exists", "full_name"),
-    "uniq_user_tenant_email_lower": ("email_exists", "email"),
-    "uniq_user_tenant_username_lower": ("username_exists", "username"),
-}
 UPDATABLE_FIELDS = ("full_name", "default_counter_id", "is_active", "email", "username")
-
-
-class StaffConflictError(Exception):
-    def __init__(self, code: str, field_name: str):
-        super().__init__(code)
-        self.code = code
-        self.field_name = field_name
 
 
 class StaffInvalidError(Exception):
@@ -56,7 +48,12 @@ def set_pin(user: User, pin: str) -> None:
     user.pin_verifier = make_pin_verifier(pin, new_salt(), settings.PIN_VERIFIER_ITERATIONS)
 
 
-def create_staff(actor: Actor, new: NewStaff) -> User:
+def create_staff(
+    actor: Actor,
+    new: NewStaff,
+    users: UserRepository = user_repository,
+    counters: CounterRepository = counter_repository,
+) -> User:
     _check_role_fields(
         new.role,
         RoleFields(
@@ -66,7 +63,7 @@ def create_staff(actor: Actor, new: NewStaff) -> User:
             has_pin=bool(new.pin),
         ),
     )
-    _check_counter(actor.tenant_id, new.default_counter_id)
+    _check_counter(counters, actor.tenant_id, new.default_counter_id)
     user = User(
         tenant_id=actor.tenant_id,
         full_name=normalize_full_name(new.full_name),
@@ -80,12 +77,18 @@ def create_staff(actor: Actor, new: NewStaff) -> User:
     else:
         user.set_password(new.password)
     with transaction.atomic():
-        _save(user)
+        users.save_unique(user)
         _log(actor, "staff_created", user, before=None)
     return user
 
 
-def update_staff(actor: Actor, user: User, changes: dict) -> User:
+def update_staff(
+    actor: Actor,
+    user: User,
+    changes: dict,
+    users: UserRepository = user_repository,
+    counters: CounterRepository = counter_repository,
+) -> User:
     before = present_staff_snapshot(user)
     for name in UPDATABLE_FIELDS:
         if name in changes:
@@ -102,11 +105,24 @@ def update_staff(actor: Actor, user: User, changes: dict) -> User:
             has_pin=bool(user.pin_hash),
         ),
     )
-    _check_counter(actor.tenant_id, user.default_counter_id)
+    _check_counter(counters, actor.tenant_id, user.default_counter_id)
     with transaction.atomic():
-        _save(user)
+        users.save_unique(user)
         _log(actor, "staff_updated", user, before=before)
     return user
+
+
+def find_staff(
+    tenant_id: int, user_id: int, users: UserRepository = user_repository
+) -> User | None:
+    return users.in_tenant(tenant_id, user_id)
+
+
+def staff_rows(
+    tenant_id: int, now: datetime, filters: dict, users: UserRepository = user_repository
+) -> QuerySet[User]:
+    """The staff table, ordered by name, each row with `pin_delay_until`."""
+    return users.staff_list(tenant_id, now, filters)
 
 
 def present_staff_snapshot(user: User) -> dict:
@@ -127,22 +143,11 @@ def _check_role_fields(role: str, fields: RoleFields) -> None:
         raise StaffInvalidError("role", str(error)) from None
 
 
-def _check_counter(tenant_id: int, counter_id: int | None) -> None:
+def _check_counter(counters: CounterRepository, tenant_id: int, counter_id: int | None) -> None:
     if counter_id is None:
         return
-    if not Counter.objects.for_tenant(tenant_id).filter(id=counter_id).exists():
+    if not counters.exists(tenant_id, counter_id):
         raise StaffInvalidError("default_counter_id", "Counter not found.")
-
-
-def _save(user: User) -> None:
-    try:
-        with transaction.atomic():
-            user.save()
-    except IntegrityError as error:
-        for constraint, (code, field_name) in _UNIQUE_CONSTRAINTS.items():
-            if constraint in str(error):
-                raise StaffConflictError(code, field_name) from None
-        raise
 
 
 def _log(actor: Actor, action: str, user: User, before: dict | None) -> None:

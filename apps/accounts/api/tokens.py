@@ -5,8 +5,9 @@ from rest_framework_simplejwt.settings import api_settings
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.accounts.models import User
+from apps.accounts.use_cases.counter_session import ensure_session_device_live
 from apps.tenants.api.device_auth import device_revoked
-from apps.tenants.use_cases.device_access import DeviceRevokedError, ensure_device_live
+from apps.tenants.use_cases.device_access import DeviceRevokedError
 
 from .authentication import DEVICE_CLAIM
 
@@ -44,10 +45,7 @@ class RefreshSerializer(TokenRefreshSerializer):
 
 
 def _ensure_live(user_id: str | None, device_id: int) -> None:
-    tenant_id = User.objects.filter(id=user_id).values_list("tenant_id", flat=True).first()
     try:
-        if tenant_id is None:
-            raise DeviceRevokedError
-        ensure_device_live(tenant_id, device_id)
+        ensure_session_device_live(user_id, device_id)
     except DeviceRevokedError:
         raise device_revoked() from None

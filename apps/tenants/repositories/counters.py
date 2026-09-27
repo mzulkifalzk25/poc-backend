@@ -15,6 +15,12 @@ class CounterRepository(Protocol):
 
     def lock(self, tenant_id: int, counter_id: int) -> Counter | None: ...
 
+    def get(self, tenant_id: int, counter_id: int) -> Counter: ...
+
+    def ids(self, tenant_id: int) -> list[int]: ...
+
+    def exists(self, tenant_id: int, counter_id: int) -> bool: ...
+
 
 class DjangoCounterRepository:
     def with_device_state(self, tenant_id: int, now: datetime) -> QuerySet[Counter]:
@@ -54,6 +60,15 @@ class DjangoCounterRepository:
         return (
             Counter.objects.for_tenant(tenant_id).select_for_update().filter(id=counter_id).first()
         )
+
+    def get(self, tenant_id: int, counter_id: int) -> Counter:
+        return Counter.objects.for_tenant(tenant_id).get(id=counter_id)
+
+    def ids(self, tenant_id: int) -> list[int]:
+        return list(Counter.objects.for_tenant(tenant_id).values_list("id", flat=True))
+
+    def exists(self, tenant_id: int, counter_id: int) -> bool:
+        return Counter.objects.for_tenant(tenant_id).filter(id=counter_id).exists()
 
 
 counter_repository = DjangoCounterRepository()

@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.domain.role_rules import CASHIER
 from apps.tenants.api.device_auth import CounterDevice, DeviceAuthentication
-from apps.tenants.models import Device
+from apps.tenants.use_cases.device_access import bound_device
 
 from .authentication import DEVICE_CLAIM, DeviceBoundJWTAuthentication
 
@@ -45,5 +45,5 @@ def counter_context(request: Request) -> CounterContext:
     if isinstance(user, CounterDevice):
         return CounterContext(user.tenant_id, user.counter_id, user.device_id, None)
     device_id = _bound_device_id(request)
-    device = Device.objects.for_tenant(user.tenant_id).get(id=device_id)
+    device = bound_device(user.tenant_id, device_id)
     return CounterContext(user.tenant_id, device.counter_id, device.id, user.id)

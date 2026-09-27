@@ -10,8 +10,9 @@ from apps.accounts.domain.pin_delay import (
     cleared,
     seconds_remaining,
 )
-from apps.accounts.domain.role_rules import CASHIER
 from apps.accounts.models import PinDelay, User
+from apps.accounts.repositories.pin_delays import PinDelayRepository, pin_delay_repository
+from apps.accounts.repositories.users import UserRepository, user_repository
 
 
 class PinRejectedError(Exception):
@@ -32,53 +33,53 @@ class PinAttempt:
     pin: str
 
 
-def pin_login(attempt: PinAttempt, now: datetime) -> User:
+def pin_login(
+    attempt: PinAttempt,
+    now: datetime,
+    users: UserRepository = user_repository,
+    delays: PinDelayRepository = pin_delay_repository,
+) -> User:
     """The delay row is committed before a rejection is raised, so a wrong
     PIN counts even though the request fails."""
-    user = _active_cashier(attempt)
+    user = _active_cashier(users, attempt)
     with transaction.atomic():
-        rejection = _apply_attempt(user, attempt, now)
+        rejection = _apply_attempt(users, delays, user, attempt, now)
     if rejection is not None:
         raise rejection
     return user
 
 
-def _apply_attempt(user: User, attempt: PinAttempt, now: datetime) -> PinRejectedError | None:
-    row = _locked_delay_row(attempt)
+def _apply_attempt(
+    users: UserRepository,
+    delays: PinDelayRepository,
+    user: User,
+    attempt: PinAttempt,
+    now: datetime,
+) -> PinRejectedError | None:
+    row = delays.lock(attempt.tenant_id, attempt.counter_id, attempt.user_id)
     state = PinDelayState(row.fail_count, row.next_allowed_at)
     wait = seconds_remaining(state, now)
     if wait:
         return PinRejectedError("pin_throttled", wait, row.fail_count)
     if check_password(attempt.pin, user.pin_hash):
-        _save_state(row, cleared())
+        _save_state(delays, row, cleared())
         user.last_active_at = now
-        user.save(update_fields=["last_active_at", "updated_at"])
+        users.save(user, ["last_active_at", "updated_at"])
         return None
     state = after_failure(state, now)
     row.last_failed_at = now
-    _save_state(row, state)
+    _save_state(delays, row, state)
     return PinRejectedError("invalid_pin", seconds_remaining(state, now), state.fail_count)
 
 
-def _active_cashier(attempt: PinAttempt) -> User:
-    user = (
-        User.objects.for_tenant(attempt.tenant_id)
-        .filter(id=attempt.user_id, role=CASHIER, is_active=True)
-        .first()
-    )
+def _active_cashier(users: UserRepository, attempt: PinAttempt) -> User:
+    user = users.active_cashier(attempt.tenant_id, attempt.user_id)
     if user is None or not user.pin_hash:
         raise PinRejectedError("invalid_pin")
     return user
 
 
-def _locked_delay_row(attempt: PinAttempt) -> PinDelay:
-    row, _ = PinDelay.objects.select_for_update().get_or_create(
-        tenant_id=attempt.tenant_id, counter_id=attempt.counter_id, user_id=attempt.user_id
-    )
-    return row
-
-
-def _save_state(row: PinDelay, state: PinDelayState) -> None:
+def _save_state(delays: PinDelayRepository, row: PinDelay, state: PinDelayState) -> None:
     row.fail_count = state.fail_count
     row.next_allowed_at = state.next_allowed_at
-    row.save()
+    delays.save(row)
