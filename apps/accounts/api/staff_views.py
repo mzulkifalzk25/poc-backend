@@ -4,7 +4,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.models import User
-from apps.accounts.use_cases.pin_admin import NotACashierError, reset_pin, unlock_cashier
 from apps.accounts.use_cases.staff import (
     Actor,
     NewStaff,
@@ -12,6 +11,7 @@ from apps.accounts.use_cases.staff import (
     StaffInvalidError,
     create_staff,
     find_staff,
+    reset_password,
     staff_rows,
     update_staff,
 )
@@ -95,29 +95,10 @@ class StaffDetailView(APIView):
         return Response(present_staff(annotated_user(request, user_id)))
 
 
-def _not_a_cashier() -> ApiError:
-    return ApiError(code="not_a_cashier", message="Only cashiers have a PIN.", status_code=409)
-
-
-class UnlockView(APIView):
+class ResetPasswordView(APIView):
     permission_classes = [IsOwner]
 
     def post(self, request, user_id: int):
         user = tenant_user(request, user_id)
-        try:
-            unlock_cashier(actor_of(request), user, timezone.now())
-        except NotACashierError:
-            raise _not_a_cashier() from None
-        return Response(status=204)
-
-
-class ResetPinView(APIView):
-    permission_classes = [IsOwner]
-
-    def post(self, request, user_id: int):
-        user = tenant_user(request, user_id)
-        try:
-            pin = reset_pin(actor_of(request), user, timezone.now())
-        except NotACashierError:
-            raise _not_a_cashier() from None
-        return Response({"pin": pin})
+        password = reset_password(actor_of(request), user, timezone.now())
+        return Response({"password": password})

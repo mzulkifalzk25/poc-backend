@@ -1,13 +1,15 @@
-from datetime import datetime
-
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.domain.role_rules import CASHIER
 from apps.accounts.use_cases.heartbeat import Heartbeat, UnknownCashierError, record_heartbeat
-from apps.accounts.use_cases.people_sync import active_roster, people_since
-from apps.accounts.use_cases.pin_login import PinAttempt, PinRejectedError, pin_login
+from apps.accounts.use_cases.login import (
+    InvalidCredentials,
+    authenticate_account,
+    find_login_account,
+)
 from apps.audit.use_cases.record_activity import ActivityEntry, record_failure
 from apps.core.api.exceptions import ApiError
 from apps.tenants.api.device_auth import CounterDevice, DeviceAuthentication
@@ -17,40 +19,43 @@ from apps.tenants.use_cases.counters import counter_of
 from apps.tenants.use_cases.settings import tenant_settings
 
 from .counter_context import COUNTER_AUTHENTICATION, IsCounterDeviceOrCashier, counter_context
-from .presenters import present_person, present_roster_row, present_user
+from .presenters import present_user
+from .serializers import LoginRequestSerializer
+from .throttling import LoginRateThrottle
 from .tokens import issue_counter_tokens
 
-_PIN_ERRORS = {
-    "invalid_pin": (401, "Wrong PIN."),
-    "pin_throttled": (429, "Too many wrong PINs. Wait, then try again."),
-}
-_FAILURE_ACTIONS = {"invalid_pin": "pin_failure", "pin_throttled": "pin_throttled"}
 
+class CashierLoginView(APIView):
+    """A cashier's email + password, checked on the server, over the network.
+    The device token proves the counter PC is activated; the resulting JWT
+    is bound to it, same as every other counter-scoped request."""
 
-class PinLoginRequestSerializer(serializers.Serializer):
-    user_id = serializers.IntegerField()
-    pin = serializers.CharField(max_length=16, trim_whitespace=False)
-
-
-class PinLoginView(APIView):
     authentication_classes = [DeviceAuthentication]
     permission_classes = [IsCounterDevice]
+    throttle_classes = [LoginRateThrottle]
+
+    def throttled(self, request, wait):
+        account = find_login_account(str(request.data.get("login", "")), (CASHIER,))
+        _log_login_failure(request, account, "login_throttled")
+        raise ApiError(
+            code="login_throttled",
+            message="Too many sign-in attempts. Try again shortly.",
+            status_code=429,
+            retry_after=int(wait) if wait is not None else None,
+        )
 
     def post(self, request):
-        serializer = PinLoginRequestSerializer(data=request.data)
+        serializer = LoginRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         device: CounterDevice = request.user
-        attempt = PinAttempt(
-            tenant_id=device.tenant_id,
-            counter_id=device.counter_id,
-            user_id=serializer.validated_data["user_id"],
-            pin=serializer.validated_data["pin"],
-        )
+        data = serializer.validated_data
         try:
-            user = pin_login(attempt, timezone.now())
-        except PinRejectedError as error:
-            _log_pin_failure(request, device, attempt, error)
-            raise _pin_error(error) from None
+            user = authenticate_account(data["login"], data["password"], roles=(CASHIER,))
+        except InvalidCredentials as error:
+            _log_login_failure(request, error.user, "login_failure")
+            raise ApiError(
+                code="invalid_credentials", message="Incorrect login or password.", status_code=401
+            ) from None
         refresh = issue_counter_tokens(user, device.device_id)
         return Response(
             {
@@ -61,70 +66,21 @@ class PinLoginView(APIView):
         )
 
 
-def _pin_error(error: PinRejectedError) -> ApiError:
-    status_code, message = _PIN_ERRORS[error.reason]
-    return ApiError(
-        code=error.reason,
-        message=message,
-        status_code=status_code,
-        retry_after=error.retry_after or None,
-    )
-
-
-def _log_pin_failure(request, device: CounterDevice, attempt: PinAttempt, error) -> None:
+def _log_login_failure(request, account, action: str) -> None:
+    """Written outside the request transaction. An unknown or ambiguous login
+    has no tenant to log against, so it is not logged."""
+    if account is None:
+        return
     record_failure(
         ActivityEntry(
-            tenant_id=device.tenant_id,
-            user_id=attempt.user_id,
-            action=_FAILURE_ACTIONS[error.reason],
+            tenant_id=account.tenant_id,
+            user_id=account.id,
+            action=action,
             entity_type="user",
-            entity_id=str(attempt.user_id),
-            device_id=device.device_id,
-            detail={
-                "counter_id": device.counter_id,
-                "fail_count": error.fail_count,
-                "retry_after": error.retry_after,
-            },
+            entity_id=str(account.id),
             ip=request.META.get("REMOTE_ADDR"),
         )
     )
-
-
-class PeopleSyncQuerySerializer(serializers.Serializer):
-    since = serializers.CharField(required=False)
-
-    def validate_since(self, value: str) -> datetime | None:
-        if value in ("", "0"):
-            return None
-        return serializers.DateTimeField().to_internal_value(value)
-
-
-class RosterView(APIView):
-    authentication_classes = [DeviceAuthentication]
-    permission_classes = [IsCounterDevice]
-
-    def get(self, request):
-        cashiers = active_roster(request.user.tenant_id)
-        return Response([present_roster_row(user) for user in cashiers])
-
-
-class PeopleSyncView(APIView):
-    authentication_classes = COUNTER_AUTHENTICATION
-    permission_classes = [IsCounterDeviceOrCashier]
-
-    def get(self, request):
-        query = PeopleSyncQuerySerializer(data=request.query_params)
-        query.is_valid(raise_exception=True)
-        context = counter_context(request)
-        delta = people_since(
-            context.tenant_id, context.counter_id, query.validated_data.get("since"), timezone.now()
-        )
-        return Response(
-            {
-                "roster": [present_person(user) for user in delta.cashiers],
-                "next_since": serializers.DateTimeField().to_representation(delta.next_since),
-            }
-        )
 
 
 class BootstrapView(APIView):
@@ -135,13 +91,11 @@ class BootstrapView(APIView):
         context = counter_context(request)
         counter = counter_of(context.tenant_id, context.counter_id)
         settings = tenant_settings(context.tenant_id)
-        roster = active_roster(context.tenant_id)
         return Response(
             {
                 "counter": {"id": counter.id, "name": counter.name, "code": counter.code},
                 "settings": TenantSettingsSerializer(settings).data,
                 "last_bill_seq": counter.last_bill_seq,
-                "roster": [present_roster_row(user) for user in roster],
                 "server_time": _now_text(),
             }
         )

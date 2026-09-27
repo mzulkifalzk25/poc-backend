@@ -1,11 +1,9 @@
 import pytest
 from django.apps import apps
 from django.conf import settings
-from django.contrib.auth.hashers import check_password
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from apps.accounts.domain.pin import verifier_matches
 from apps.accounts.models import User
 from apps.audit.models import ActivityLog
 from apps.catalog.models import Category, Product
@@ -49,20 +47,19 @@ def test_seeds_the_store_owner_and_settings():
     owner = User.objects.for_tenant(tenant.id).get(role="owner")
     assert (tenant.name, tenant.timezone) == ("Fresh Basket Mart", "Asia/Karachi")
     assert TenantSettings.objects.get(tenant=tenant).store_name == "Fresh Basket Mart"
-    assert (owner.full_name, owner.username, owner.pin_hash) == ("Sana Ahmed", "sana", None)
+    assert (owner.full_name, owner.username) == ("Sana Ahmed", "sana")
     assert owner.check_password(result.owner_password)
 
 
 @pytest.mark.django_db
-def test_seeds_cashiers_with_working_pins_and_default_counters():
+def test_seeds_cashiers_with_working_passwords_emails_and_default_counters():
     result = _seed()
 
     counters = dict(Counter.objects.for_tenant(result.tenant.id).values_list("id", "code"))
     for cashier in User.objects.for_tenant(result.tenant.id).filter(role="cashier"):
-        pin = result.pins[cashier.full_name]
-        assert check_password(pin, cashier.pin_hash)
-        assert verifier_matches(pin, cashier.pin_verifier)
-        assert f"${settings.PIN_VERIFIER_ITERATIONS}$" in cashier.pin_verifier
+        password = result.cashier_passwords[cashier.full_name]
+        assert cashier.check_password(password)
+        assert cashier.email == cashier.full_name.lower().replace(" ", ".") + "@example.com"
     rows = User.objects.for_tenant(result.tenant.id).filter(role="cashier").order_by("id")
     assert [(u.full_name, counters.get(u.default_counter_id), u.is_active) for u in rows] == [
         ("Zainab Khan", "002", True),
@@ -166,6 +163,6 @@ def test_summary_prints_every_credential():
     text = "\n".join(summary_lines(result))
 
     assert result.owner_password in text
-    assert all(pin in text for pin in result.pins.values())
+    assert all(password in text for password in result.cashier_passwords.values())
     assert all(token in text for token in result.device_tokens.values())
     assert result.activation_codes["003"].code in text

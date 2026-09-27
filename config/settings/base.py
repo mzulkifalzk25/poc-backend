@@ -121,9 +121,6 @@ REST_FRAMEWORK = {
     },
 }
 
-# PBKDF2-SHA256 iterations for the offline PIN verifier sent to counters.
-PIN_VERIFIER_ITERATIONS = int(os.environ.get("PIN_VERIFIER_ITERATIONS", "600000"))
-
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),

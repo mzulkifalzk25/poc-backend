@@ -16,7 +16,7 @@ def counter() -> Counter:
 
 @pytest.fixture
 def cashier() -> User:
-    return User.objects.create(tenant_id=1, full_name="Zainab Khan", role="cashier", pin_hash="x")
+    return User.objects.create(tenant_id=1, full_name="Zainab Khan", role="cashier")
 
 
 def _shift(counter: Counter, cashier: User, status: str = "open") -> Shift:

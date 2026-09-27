@@ -37,9 +37,7 @@ def pc(device):
 
 @pytest.fixture
 def cashier(tenant):
-    return User.objects.create(
-        tenant_id=tenant.id, full_name="Zainab Khan", role="cashier", pin_hash="x"
-    )
+    return User.objects.create(tenant_id=tenant.id, full_name="Zainab Khan", role="cashier")
 
 
 @pytest.fixture

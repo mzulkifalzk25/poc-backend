@@ -1,11 +1,9 @@
-from datetime import timedelta
+from uuid import uuid4
 
 import pytest
-from django.utils import timezone
 from rest_framework.test import APIClient
 
-from apps.accounts.domain.pin import verifier_matches
-from apps.accounts.models import PinDelay, User
+from apps.accounts.models import User
 from apps.audit.models import ActivityLog
 from apps.tenants.models import Counter
 from apps.tenants.tests.helpers import authed_client, make_tenant
@@ -33,25 +31,27 @@ def counter(tenant) -> Counter:
     return Counter.objects.create(tenant_id=tenant.id, name="Counter 2", code="002")
 
 
-def _cashier(client, name="Zainab Khan", pin="4821", **extra):
-    return client.post(USERS_URL, {"full_name": name, "pin": pin, **extra}, format="json")
+def _cashier(client, name="Zainab Khan", password="pw-482134", **extra):
+    extra.setdefault("email", f"{uuid4().hex[:8]}@example.com")
+    return client.post(USERS_URL, {"full_name": name, "password": password, **extra}, format="json")
 
 
 @pytest.mark.django_db
-def test_owner_creates_a_cashier_with_hashed_pin_and_verifier(owner_client, counter):
-    response = _cashier(owner_client, "  Zainab   Khan ", default_counter_id=counter.id)
+def test_owner_creates_a_cashier_with_a_hashed_password(owner_client, counter):
+    response = _cashier(
+        owner_client, "  Zainab   Khan ", email="zainab@example.com", default_counter_id=counter.id
+    )
 
     assert response.status_code == 201
     body = response.json()
     assert body["full_name"] == "Zainab Khan"
     assert body["initials"] == "ZK"
     assert body["role"] == "cashier"
+    assert body["email"] == "zainab@example.com"
     assert body["default_counter_id"] == counter.id
-    assert "pin" not in body and "pin_hash" not in body and "pin_verifier" not in body
+    assert "password" not in body
     user = User.objects.get(id=body["id"])
-    assert user.pin_hash.startswith("argon2")
-    assert verifier_matches("4821", user.pin_verifier)
-    assert user.pin_verifier.startswith("pbkdf2_sha256$1000$")
+    assert user.check_password("pw-482134")
 
 
 @pytest.mark.django_db
@@ -63,7 +63,7 @@ def test_creating_staff_is_logged_without_secrets(tenant, owner):
     entry = ActivityLog.objects.for_tenant(tenant.id).get(action="staff_created")
     assert entry.user_id == owner_user.id
     assert entry.entity_id == str(user_id)
-    assert "4821" not in str(entry.after)
+    assert "pw-482134" not in str(entry.after)
 
 
 @pytest.mark.django_db
@@ -71,7 +71,7 @@ def test_creating_staff_is_logged_without_secrets(tenant, owner):
 def test_duplicate_cashier_name_is_409_name_exists(owner_client, typed):
     _cashier(owner_client)
 
-    response = _cashier(owner_client, typed, pin="1111")
+    response = _cashier(owner_client, typed)
 
     assert response.status_code == 409
     error = response.json()["error"]
@@ -82,7 +82,7 @@ def test_duplicate_cashier_name_is_409_name_exists(owner_client, typed):
 @pytest.mark.django_db
 def test_a_deactivated_cashiers_name_stays_taken(tenant, owner_client):
     User.objects.create(
-        tenant_id=tenant.id, full_name="Usman Tariq", role="cashier", pin_hash="x", is_active=False
+        tenant_id=tenant.id, full_name="Usman Tariq", role="cashier", is_active=False
     )
 
     assert _cashier(owner_client, "Usman Tariq").status_code == 409
@@ -97,34 +97,30 @@ def test_same_cashier_name_in_another_tenant_is_fine(owner_client):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("pin", ["123", "12345", "abcd", ""])
-def test_cashier_pin_must_be_four_digits(owner_client, pin):
-    response = _cashier(owner_client, pin=pin)
+def test_cashier_without_a_password_is_rejected(owner_client):
+    response = owner_client.post(
+        USERS_URL, {"full_name": "Hina Malik", "email": "hina@example.com"}, format="json"
+    )
 
     assert response.status_code == 400
-    assert response.json()["error"]["fields"]["pin"]
+    assert response.json()["error"]["fields"]["password"]
 
 
 @pytest.mark.django_db
-def test_cashier_without_a_pin_is_rejected(owner_client):
-    response = owner_client.post(USERS_URL, {"full_name": "Hina Malik"}, format="json")
+def test_cashier_needs_an_email_or_username(owner_client):
+    response = owner_client.post(
+        USERS_URL, {"full_name": "Hina Malik", "password": "pw-482134"}, format="json"
+    )
 
     assert response.status_code == 400
     assert response.json()["error"]["fields"]["role"]
 
 
 @pytest.mark.django_db
-def test_cashiers_have_no_username(owner_client):
-    response = _cashier(owner_client, username="zainab")
-
-    assert response.status_code == 400
-
-
-@pytest.mark.django_db
 def test_default_counter_must_belong_to_the_tenant(owner_client):
     other = Counter.objects.create(tenant_id=make_tenant("other-mart").id, name="C", code="001")
 
-    response = _cashier(owner_client, default_counter_id=other.id)
+    response = _cashier(owner_client, email="zainab@example.com", default_counter_id=other.id)
 
     assert response.status_code == 400
     assert response.json()["error"]["fields"]["default_counter_id"]
@@ -141,7 +137,6 @@ def test_owner_creates_a_manager_with_a_password(owner_client):
     assert response.status_code == 201
     user = User.objects.get(id=response.json()["id"])
     assert user.check_password("pw-123456")
-    assert user.pin_hash is None
 
 
 @pytest.mark.django_db
@@ -157,9 +152,9 @@ def test_duplicate_username_is_409(owner_client):
 
 @pytest.mark.django_db
 def test_list_is_paged_and_filtered(tenant, owner_client, counter):
-    _cashier(owner_client, "Zainab Khan", default_counter_id=counter.id)
-    _cashier(owner_client, "Bilal Raza")
-    usman = _cashier(owner_client, "Usman Tariq").json()
+    _cashier(owner_client, "Zainab Khan", email="zainab@example.com", default_counter_id=counter.id)
+    _cashier(owner_client, "Bilal Raza", email="bilal@example.com")
+    usman = _cashier(owner_client, "Usman Tariq", email="usman@example.com").json()
     owner_client.patch(f"{USERS_URL}/{usman['id']}", {"is_active": False}, format="json")
 
     everyone = owner_client.get(USERS_URL).json()
@@ -242,38 +237,3 @@ def test_cashier_cannot_manage_staff(tenant):
 
 def test_staff_needs_a_signed_in_owner():
     assert APIClient().get(USERS_URL).status_code == 401
-
-
-@pytest.mark.django_db
-def test_cashier_row_shows_a_running_delay_only(tenant, owner_client):
-    zainab = _cashier(owner_client).json()
-    now = timezone.now()
-    PinDelay.objects.create(
-        tenant_id=tenant.id,
-        counter_id=1,
-        user_id=zainab["id"],
-        fail_count=5,
-        next_allowed_at=now + timedelta(minutes=1),
-    )
-    PinDelay.objects.create(
-        tenant_id=tenant.id,
-        counter_id=2,
-        user_id=zainab["id"],
-        fail_count=4,
-        next_allowed_at=now - timedelta(minutes=1),
-    )
-
-    rows = owner_client.get(USERS_URL, {"role": "cashier"}).json()["results"]
-    renamed = owner_client.patch(f"{USERS_URL}/{zainab['id']}", {"full_name": "Zainab K"}).json()
-
-    assert rows[0]["pin_delay_until"] is not None
-    assert renamed["pin_delay_until"] == rows[0]["pin_delay_until"]
-
-
-@pytest.mark.django_db
-def test_no_delay_shows_null(owner_client):
-    _cashier(owner_client)
-
-    rows = owner_client.get(USERS_URL).json()["results"]
-
-    assert all(row["pin_delay_until"] is None for row in rows)

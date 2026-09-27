@@ -5,19 +5,18 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenRefreshView
 
+from apps.accounts.domain.role_rules import MANAGER, OWNER
 from apps.audit.use_cases.record_activity import ActivityEntry, record_failure
 from apps.core.api.exceptions import ApiError
 from apps.tenants.use_cases.tenants import tenant_of
 
-from ..use_cases.login import (
-    InvalidCredentials,
-    authenticate_owner_or_manager,
-    find_login_account,
-)
+from ..use_cases.login import InvalidCredentials, authenticate_account, find_login_account
 from .presenters import present_tenant, present_user
 from .serializers import LoginRequestSerializer, LogoutRequestSerializer
 from .throttling import LoginRateThrottle
 from .tokens import RefreshSerializer
+
+_OWNER_ROLES = (OWNER, MANAGER)
 
 
 class LoginView(APIView):
@@ -26,7 +25,7 @@ class LoginView(APIView):
     throttle_classes = [LoginRateThrottle]
 
     def throttled(self, request, wait):
-        account = find_login_account(str(request.data.get("login", "")))
+        account = find_login_account(str(request.data.get("login", "")), _OWNER_ROLES)
         _log_login_failure(request, account, "login_throttled")
         raise ApiError(
             code="login_throttled",
@@ -38,9 +37,10 @@ class LoginView(APIView):
     def post(self, request):
         serializer = LoginRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
 
         try:
-            user = authenticate_owner_or_manager(**serializer.validated_data)
+            user = authenticate_account(data["login"], data["password"], _OWNER_ROLES)
         except InvalidCredentials as error:
             _log_login_failure(request, error.user, "login_failure")
             raise ApiError(
