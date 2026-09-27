@@ -1,11 +1,10 @@
 from django.contrib import admin
 
-from apps.core.read_only_admin import ReadOnlyAdmin
 from apps.shifts.models import Shift
 
 
 @admin.register(Shift)
-class ShiftAdmin(ReadOnlyAdmin):
+class ShiftAdmin(admin.ModelAdmin):
     list_display = (
         "counter",
         "cashier",
