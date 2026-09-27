@@ -9,7 +9,7 @@ from apps.reports.use_cases.rollup import DEFAULT_BATCH_SIZE, RollupAlreadyRunni
 
 class Command(BaseCommand):
     help = (
-        "Add every uploaded bill not rolled up yet to the report tables. "
+        "Add every uploaded bill and return not rolled up yet to the report tables. "
         "With --loop, keep doing it every --interval seconds (for systemd)."
     )
 
@@ -42,4 +42,4 @@ class Command(BaseCommand):
 
     def _report(self, added: int, quiet_when_idle: bool) -> None:
         if added or not quiet_when_idle:
-            self.stdout.write(f"Rolled up {added} bills.")
+            self.stdout.write(f"Rolled up {added} bills and returns.")

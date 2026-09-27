@@ -3,7 +3,16 @@ from decimal import Decimal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from apps.reports.domain.rollup import SoldBill, SoldLine, local_hour, sum_bills
+from apps.reports.domain.rollup import (
+    RefundedReturn,
+    ReturnedLine,
+    RollupDeltas,
+    SoldBill,
+    SoldLine,
+    local_hour,
+    sum_bills,
+    sum_returns,
+)
 
 KARACHI = "Asia/Karachi"
 D = Decimal
@@ -82,3 +91,64 @@ def test_keeps_tenants_apart_in_their_own_time_zones():
     deltas = sum_bills([bill(at), bill(at, tenant_id=2)], {1: KARACHI, 2: "UTC"})
 
     assert set(deltas.daily) == {(1, date(2026, 9, 19)), (2, date(2026, 9, 18))}
+
+
+def refund(returned_at: datetime, restock: bool = True, **extra) -> RefundedReturn:
+    values = {
+        "id": uuid4(),
+        "tenant_id": 1,
+        "counter_id": 2,
+        "cashier_id": 5,
+        "returned_at": returned_at,
+        "refund_total": D("621"),
+        "restock": restock,
+        "lines": (
+            ReturnedLine(product_id=7, qty=D("1"), refund=D("620.00"), cost_snapshot=D("540.33")),
+        ),
+    }
+    return RefundedReturn(**{**values, **extra})
+
+
+def test_a_return_fills_the_refund_columns_and_leaves_sales_gross():
+    sale = bill(datetime(2026, 9, 19, 6, 10, tzinfo=UTC))
+    back = refund(datetime(2026, 9, 19, 6, 40, tzinfo=UTC))
+
+    deltas = sum_returns([back], {1: KARACHI}, sum_bills([sale], {1: KARACHI}))
+
+    [day] = deltas.daily.values()
+    assert (day.bills, day.gross) == (1, D("1240"))
+    assert (day.refund_count, day.refund_amount, day.refund_cost_recovered) == (
+        1,
+        D("621"),
+        D("540.33"),
+    )
+    [hour] = deltas.hourly.values()
+    assert (hour.refund_count, hour.refund_amount) == (1, D("621"))
+    [product] = deltas.products.values()
+    assert (product.qty, product.returns_qty, product.refund_amount) == (
+        D("2"),
+        D("1"),
+        D("620.00"),
+    )
+    [cashier] = deltas.cashiers.values()
+    assert (cashier.bills, cashier.refund_count, cashier.refund_amount) == (1, 1, D("621"))
+
+
+def test_a_return_not_restocked_recovers_no_cost():
+    deltas = sum_returns(
+        [refund(datetime(2026, 9, 19, 6, 40, tzinfo=UTC), restock=False)],
+        {1: KARACHI},
+        RollupDeltas(),
+    )
+
+    [day] = deltas.daily.values()
+    assert (day.refund_amount, day.refund_cost_recovered) == (D("621"), D("0"))
+
+
+def test_a_return_lands_on_the_day_it_happened_not_the_sale_day():
+    after_midnight_karachi = datetime(2026, 9, 19, 19, 30, tzinfo=UTC)
+
+    deltas = sum_returns([refund(after_midnight_karachi)], {1: KARACHI}, RollupDeltas())
+
+    assert list(deltas.daily) == [(1, date(2026, 9, 20))]
+    assert list(deltas.cashiers) == [(1, date(2026, 9, 20), 5)]

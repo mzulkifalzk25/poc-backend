@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import pytest
 
-from apps.reports.domain.rollup import SoldBill
+from apps.reports.domain.rollup import RefundedReturn, SoldBill
 from apps.reports.use_cases.rollup import RollupAlreadyRunning, roll_up_pending, run_rollup
 
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=UTC)
@@ -25,11 +25,26 @@ def sold() -> SoldBill:
     )
 
 
+def refunded() -> RefundedReturn:
+    return RefundedReturn(
+        id=uuid4(),
+        tenant_id=1,
+        counter_id=2,
+        cashier_id=5,
+        returned_at=NOW,
+        refund_total=Decimal("50"),
+        restock=True,
+        lines=(),
+    )
+
+
 class FakeRollup:
-    def __init__(self, pending: list[SoldBill]) -> None:
+    def __init__(self, pending: list[SoldBill], returns: list | None = None) -> None:
         self.pending = pending
+        self.returns = returns or []
         self.added: list = []
         self.marked: list = []
+        self.marked_returns: list = []
         self.locked = False
         self.lock_taken_elsewhere = False
 
@@ -46,6 +61,10 @@ class FakeRollup:
         batch, self.pending = self.pending[:limit], self.pending[limit:]
         return batch
 
+    def claim_pending_returns(self, limit: int) -> list:
+        batch, self.returns = self.returns[:limit], self.returns[limit:]
+        return batch
+
     def timezones(self, tenant_ids: set[int]) -> dict[int, str]:
         return dict.fromkeys(tenant_ids, "Asia/Karachi")
 
@@ -54,6 +73,9 @@ class FakeRollup:
 
     def mark_rolled_up(self, bill_ids, now) -> None:
         self.marked.append(bill_ids)
+
+    def mark_returns_rolled_up(self, return_ids, now) -> None:
+        self.marked_returns.append(return_ids)
 
 
 # The use case opens a real transaction; every read and write goes to the fake.
@@ -68,11 +90,20 @@ def test_drains_the_queue_one_batch_at_a_time():
     assert sum(next(iter(d.daily.values())).bills for d in fake.added) == 5
 
 
+def test_drains_bills_and_returns_until_both_queues_are_short():
+    fake = FakeRollup([sold()], returns=[refunded() for _ in range(3)])
+
+    assert roll_up_pending(NOW, batch_size=2, rollup=fake) == 4
+    assert [len(ids) for ids in fake.marked] == [1, 0]
+    assert [len(ids) for ids in fake.marked_returns] == [2, 1]
+    assert sum(next(iter(d.daily.values())).refund_count for d in fake.added) == 3
+
+
 def test_an_empty_queue_writes_nothing():
     fake = FakeRollup([])
 
     assert roll_up_pending(NOW, rollup=fake) == 0
-    assert fake.added == [] and fake.marked == []
+    assert fake.added == [] and fake.marked == [] and fake.marked_returns == []
 
 
 def test_a_loop_runs_a_pass_every_interval_until_told_to_stop():
