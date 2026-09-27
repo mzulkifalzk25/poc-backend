@@ -3,18 +3,17 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.api.permissions import IsOwner, IsOwnerOrCashier
+from apps.catalog.domain.errors import BarcodeExistsError
 from apps.catalog.models import Product
-from apps.catalog.repositories.products import (
-    filter_products,
-    price_history_rows,
-    products_with_stock,
-)
 from apps.catalog.use_cases.products import (
-    BarcodeExistsError,
     CategoryNotFoundError,
     NewProduct,
     archive_product,
     create_product,
+    find_product,
+    live_product_by_barcode,
+    price_history,
+    product_rows,
     restore_product,
     update_product,
 )
@@ -51,9 +50,7 @@ class ProductListCreateView(APIView):
     def get(self, request):
         filters = ProductFilterSerializer(data=request.query_params)
         filters.is_valid(raise_exception=True)
-        products = filter_products(
-            products_with_stock(request.user.tenant_id), filters.validated_data
-        ).order_by("name_lc", "id")
+        products = product_rows(request.user.tenant_id, filters.validated_data)
         paginator = PageNumberPagination()
         page = paginator.paginate_queryset(products, request, view=self)
         include_cost = request.user.role == "owner"
@@ -74,7 +71,7 @@ class ProductListCreateView(APIView):
 
 
 def tenant_product(request, product_id: int) -> Product:
-    product = products_with_stock(request.user.tenant_id).filter(id=product_id).first()
+    product = find_product(request.user.tenant_id, product_id)
     if product is None:
         raise ApiError(code="not_found", message="Product not found.", status_code=404)
     return product
@@ -125,11 +122,7 @@ class ProductByBarcodeView(APIView):
     permission_classes = [IsOwnerOrCashier]
 
     def get(self, request, code: str):
-        product = (
-            products_with_stock(request.user.tenant_id)
-            .filter(barcode=code.strip(), is_archived=False)
-            .first()
-        )
+        product = live_product_by_barcode(request.user.tenant_id, code)
         if product is None:
             raise ApiError(
                 code="unknown_barcode", message="No live product has this barcode.", status_code=404
@@ -143,5 +136,5 @@ class ProductPriceHistoryView(APIView):
 
     def get(self, request, product_id: int):
         product = tenant_product(request, product_id)
-        rows = price_history_rows(product)
+        rows = price_history(product)
         return Response([present_price_change(row, who) for row, who in rows])

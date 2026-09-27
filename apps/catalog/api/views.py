@@ -1,17 +1,18 @@
-from django.db.models import Count, Q
 from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.api.permissions import IsOwner
+from apps.catalog.domain.errors import CategoryNameExistsError
 from apps.catalog.models import Category
 from apps.catalog.use_cases.categories import (
     CategoryHasProductsError,
-    CategoryNameExistsError,
     TargetCategoryInvalidError,
+    category_list,
     create_category,
     delete_category,
+    find_category,
     move_products,
     update_category,
 )
@@ -32,12 +33,7 @@ class CategoryListCreateView(APIView):
         return [IsAuthenticated()] if self.request.method == "GET" else [IsOwner()]
 
     def get(self, request):
-        categories = (
-            Category.objects.for_tenant(request.user.tenant_id)
-            .filter(is_active=True)
-            .annotate(product_count=Count("products", filter=Q(products__is_archived=False)))
-            .order_by("sort_order", "name")
-        )
+        categories = category_list(request.user.tenant_id)
         return Response([present_category(category) for category in categories])
 
     def post(self, request):
@@ -97,7 +93,7 @@ class CategoryMoveProductsView(APIView):
 
 
 def _tenant_category(request, category_id: int) -> Category:
-    category = Category.objects.for_tenant(request.user.tenant_id).filter(id=category_id).first()
+    category = find_category(request.user.tenant_id, category_id)
     if category is None:
         raise ApiError(code="not_found", message="Category not found.", status_code=404)
     return category
