@@ -1,52 +1,24 @@
-from dataclasses import dataclass
-from datetime import datetime
-from uuid import UUID
+from dataclasses import replace
 
 from django.utils import timezone
 
+from apps.audit.domain.activity import ActivityEntry
 from apps.audit.models import ActivityLog
+from apps.audit.repositories.activity_log import ActivityLogRepository, activity_log
+
+__all__ = ["ActivityEntry", "record_activity", "record_failure"]
 
 
-@dataclass(frozen=True)
-class ActivityEntry:
-    tenant_id: int
-    action: str
-    entity_type: str = ""
-    entity_id: str = ""
-    user_id: int | None = None
-    device_id: int | None = None
-    before: dict | None = None
-    after: dict | None = None
-    detail: dict | None = None
-    ip: str | None = None
-    occurred_at: datetime | None = None
-    client_event_id: UUID | None = None
-
-
-def record_activity(entry: ActivityEntry) -> ActivityLog:
+def record_activity(entry: ActivityEntry, log: ActivityLogRepository = activity_log) -> ActivityLog:
     """Write an activity-log row in the caller's current transaction."""
-    return _write(entry, using="default")
+    return log.add(_stamped(entry))
 
 
-def record_failure(entry: ActivityEntry) -> ActivityLog:
+def record_failure(entry: ActivityEntry, log: ActivityLogRepository = activity_log) -> ActivityLog:
     """Write a failure entry (PIN/password failures, throttled sign-ins,
-    failed activation) on the separate `audit` connection, so a rollback of
-    the request's own transaction can never erase it."""
-    return _write(entry, using="audit")
+    failed activation) outside the request's transaction."""
+    return log.add_outside_transaction(_stamped(entry))
 
 
-def _write(entry: ActivityEntry, using: str) -> ActivityLog:
-    return ActivityLog.objects.using(using).create(
-        tenant_id=entry.tenant_id,
-        user_id=entry.user_id,
-        action=entry.action,
-        entity_type=entry.entity_type,
-        entity_id=entry.entity_id,
-        before=entry.before,
-        after=entry.after,
-        detail=entry.detail,
-        device_id=entry.device_id,
-        client_event_id=entry.client_event_id,
-        occurred_at=entry.occurred_at or timezone.now(),
-        ip=entry.ip,
-    )
+def _stamped(entry: ActivityEntry) -> ActivityEntry:
+    return entry if entry.occurred_at else replace(entry, occurred_at=timezone.now())
