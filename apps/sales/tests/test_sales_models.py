@@ -6,7 +6,8 @@ from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError
 
 from apps.accounts.models import User
-from apps.sales.models import BILL_NO_CONFLICT, Bill, BillItem, Payment
+from apps.sales.domain.flags import BILL_NO_CONFLICT
+from apps.sales.models import Bill, BillItem, Payment
 from apps.tenants.models import Counter
 
 from .factories import make_bill, make_product

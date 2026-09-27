@@ -4,9 +4,8 @@ from django.db import models
 
 from apps.catalog.models import Product
 from apps.core.models import TenantModel
+from apps.sales.domain.flags import BILL_NO_CONFLICT
 from apps.tenants.models import Counter
-
-BILL_NO_CONFLICT = "bill_no_conflict"
 
 
 def _money(**kwargs) -> models.DecimalField:
