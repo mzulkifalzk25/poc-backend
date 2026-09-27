@@ -28,6 +28,7 @@ class User(TenantModel, AbstractBaseUser):
     default_counter_id = models.BigIntegerField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     last_active_at = models.DateTimeField(null=True, blank=True)
+    is_platform_admin = models.BooleanField(default=False)
 
     USERNAME_FIELD = "id"
     REQUIRED_FIELDS: list[str] = []
@@ -56,6 +57,21 @@ class User(TenantModel, AbstractBaseUser):
 
     def __str__(self) -> str:
         return self.full_name
+
+    @property
+    def is_staff(self) -> bool:
+        """Only an active platform admin may open the Django admin."""
+        return self.is_active and self.is_platform_admin
+
+    @property
+    def is_superuser(self) -> bool:
+        return self.is_staff
+
+    def has_perm(self, perm: str, obj: object = None) -> bool:
+        return self.is_staff
+
+    def has_module_perms(self, app_label: str) -> bool:
+        return self.is_staff
 
 
 class PinDelay(TenantModel):
