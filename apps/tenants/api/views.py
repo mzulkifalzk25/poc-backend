@@ -1,5 +1,7 @@
 from django.utils import timezone
 from rest_framework.generics import ListCreateAPIView, RetrieveUpdateAPIView
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.accounts.api.permissions import IsOwner
 from apps.audit.use_cases.record_activity import ActivityEntry, record_activity
@@ -7,33 +9,29 @@ from apps.core.api.exceptions import ApiError
 from apps.tenants.domain.counter_rules import CounterCodeLockedError, ensure_code_can_change
 from apps.tenants.models import Counter, TenantSettings
 from apps.tenants.repositories.counters import counters_with_device_state
+from apps.tenants.use_cases.settings import tenant_settings, update_settings
 
 from .serializers import CounterSerializer, TenantSettingsSerializer
 
 
-class TenantSettingsView(RetrieveUpdateAPIView):
+class TenantSettingsView(APIView):
     permission_classes = [IsOwner]
-    serializer_class = TenantSettingsSerializer
     http_method_names = ["get", "patch"]
 
-    def get_object(self):
-        settings, _ = TenantSettings.objects.get_or_create(tenant_id=self.request.user.tenant_id)
-        return settings
+    def get(self, request):
+        settings = tenant_settings(request.user.tenant_id)
+        return Response(TenantSettingsSerializer(settings).data)
 
-    def perform_update(self, serializer):
-        before = TenantSettingsSerializer(serializer.instance).data
-        instance = serializer.save()
-        record_activity(
-            ActivityEntry(
-                tenant_id=self.request.user.tenant_id,
-                user_id=self.request.user.id,
-                action="settings_changed",
-                entity_type="tenant_settings",
-                entity_id=str(instance.id),
-                before=dict(before),
-                after=TenantSettingsSerializer(instance).data,
-            )
-        )
+    def patch(self, request):
+        settings = tenant_settings(request.user.tenant_id)
+        serializer = TenantSettingsSerializer(settings, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        update_settings(request.user.id, settings, serializer.validated_data, _settings_snapshot)
+        return Response(TenantSettingsSerializer(settings).data)
+
+
+def _settings_snapshot(settings: TenantSettings) -> dict:
+    return TenantSettingsSerializer(settings).data
 
 
 class CounterListCreateView(ListCreateAPIView):
