@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import datetime
 
 from django.db import transaction
@@ -27,3 +28,31 @@ def roll_up_pending(
         total += len(bills)
         if len(bills) < batch_size:
             return total
+
+
+class RollupAlreadyRunning(Exception):
+    """Another runner holds the rollup lock."""
+
+
+def run_rollup(
+    clock: Callable[[], datetime],
+    *,
+    loop: bool = False,
+    interval: float = 30,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    keep_going: Callable[[], bool] = lambda: True,
+    sleep: Callable[[float], None],
+    on_pass: Callable[[int], None] = lambda added: None,
+    rollup: RollupRepository = rollup_repository,
+) -> None:
+    """One pass, or with `loop` a pass every `interval` seconds until
+    `keep_going` says stop. Only one runner may work at a time."""
+    if not rollup.try_lock_runner():
+        raise RollupAlreadyRunning
+    try:
+        on_pass(roll_up_pending(clock(), batch_size, rollup))
+        while loop and keep_going():
+            sleep(interval)
+            on_pass(roll_up_pending(clock(), batch_size, rollup))
+    finally:
+        rollup.unlock_runner()

@@ -11,6 +11,8 @@ from apps.sales.models import Bill, BillItem, Payment
 from apps.tenants.models import Tenant
 
 _SALES_COLUMNS = ("bills", "items", "gross", "tax", "cash", "card", "wallet", "cost")
+# Keys of the session advisory lock that lets only one rollup runner work at a time.
+_RUNNER_LOCK = (7302, 0)
 
 
 class RollupRepository(Protocol):
@@ -21,6 +23,10 @@ class RollupRepository(Protocol):
     def add(self, deltas: RollupDeltas, now: datetime) -> None: ...
 
     def mark_rolled_up(self, bill_ids: list[UUID], now: datetime) -> None: ...
+
+    def try_lock_runner(self) -> bool: ...
+
+    def unlock_runner(self) -> None: ...
 
 
 def _upsert(table: str, keys: Sequence[str], sums: Sequence[str], rows: list[tuple]) -> None:
@@ -112,6 +118,16 @@ class DjangoRollupRepository:
 
     def mark_rolled_up(self, bill_ids: list[UUID], now: datetime) -> None:
         Bill.objects.filter(id__in=bill_ids).update(rolled_up_at=now)
+
+    def try_lock_runner(self) -> bool:
+        """Held by this database session until `unlock_runner` or disconnect."""
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_try_advisory_lock(%s, %s)", _RUNNER_LOCK)
+            return cursor.fetchone()[0]
+
+    def unlock_runner(self) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_unlock(%s, %s)", _RUNNER_LOCK)
 
 
 rollup_repository = DjangoRollupRepository()

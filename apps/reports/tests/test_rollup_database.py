@@ -4,7 +4,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from django.core.management import call_command
+from django.core.management import CommandError, call_command
 from django.db import connection, transaction
 
 from apps.reports.models import SalesDaily, SalesDailyCashier, SalesDailyProduct, SalesHourly
@@ -148,3 +148,31 @@ def test_skips_a_bill_another_transaction_holds_and_takes_it_later():
     assert Bill.objects.get(id=held.id).rolled_up_at is None
     assert roll_up_pending(datetime.now(UTC)) == 1
     assert SalesDaily.objects.get(tenant_id=counter.tenant_id).bills == 2
+
+
+@pytest.mark.django_db(transaction=True)
+def test_the_command_refuses_to_run_while_another_runner_holds_the_lock():
+    sell(*shop())
+    locked, release = threading.Event(), threading.Event()
+
+    def other_runner():
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_lock(7302, 0)")
+            locked.set()
+            release.wait(timeout=10)
+            cursor.execute("SELECT pg_advisory_unlock(7302, 0)")
+        connection.close()
+
+    holder = threading.Thread(target=other_runner)
+    holder.start()
+    locked.wait(timeout=10)
+    try:
+        with pytest.raises(CommandError, match="Another rollup is running"):
+            call_command("run_rollup")
+    finally:
+        release.set()
+        holder.join()
+
+    assert Bill.objects.filter(rolled_up_at__isnull=True).count() == 1
+    call_command("run_rollup")
+    assert not Bill.objects.filter(rolled_up_at__isnull=True).exists()

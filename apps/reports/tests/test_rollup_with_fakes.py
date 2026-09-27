@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 
 from apps.reports.domain.rollup import SoldBill
-from apps.reports.use_cases.rollup import roll_up_pending
+from apps.reports.use_cases.rollup import RollupAlreadyRunning, roll_up_pending, run_rollup
 
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=UTC)
 
@@ -30,6 +30,17 @@ class FakeRollup:
         self.pending = pending
         self.added: list = []
         self.marked: list = []
+        self.locked = False
+        self.lock_taken_elsewhere = False
+
+    def try_lock_runner(self) -> bool:
+        if self.lock_taken_elsewhere:
+            return False
+        self.locked = True
+        return True
+
+    def unlock_runner(self) -> None:
+        self.locked = False
 
     def claim_pending(self, limit: int) -> list[SoldBill]:
         batch, self.pending = self.pending[:limit], self.pending[limit:]
@@ -62,3 +73,47 @@ def test_an_empty_queue_writes_nothing():
 
     assert roll_up_pending(NOW, rollup=fake) == 0
     assert fake.added == [] and fake.marked == []
+
+
+def test_a_loop_runs_a_pass_every_interval_until_told_to_stop():
+    fake = FakeRollup([sold(), sold()])
+    passes: list[int] = []
+    sleeps: list[float] = []
+    stop_after = iter([True, True, False])
+
+    run_rollup(
+        lambda: NOW,
+        loop=True,
+        interval=30,
+        keep_going=lambda: next(stop_after),
+        sleep=sleeps.append,
+        on_pass=passes.append,
+        rollup=fake,
+    )
+
+    assert passes == [2, 0, 0]
+    assert sleeps == [30, 30]
+    assert fake.locked is False
+
+
+def test_the_lock_is_released_when_a_pass_fails():
+    fake = FakeRollup([sold()])
+
+    def broken(deltas, now):
+        raise RuntimeError("database gone")
+
+    fake.add = broken
+    with pytest.raises(RuntimeError):
+        run_rollup(lambda: NOW, sleep=lambda seconds: None, rollup=fake)
+
+    assert fake.locked is False
+
+
+def test_a_second_runner_is_refused_and_writes_nothing():
+    fake = FakeRollup([sold()])
+    fake.lock_taken_elsewhere = True
+
+    with pytest.raises(RollupAlreadyRunning):
+        run_rollup(lambda: NOW, sleep=lambda seconds: None, rollup=fake)
+
+    assert fake.marked == []
