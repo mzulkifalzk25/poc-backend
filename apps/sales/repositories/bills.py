@@ -1,12 +1,14 @@
 from collections.abc import Iterable
+from decimal import Decimal
 from typing import Protocol
 from uuid import UUID
 
 from django.db import IntegrityError, connection, transaction
+from django.db.models import Sum
 
 from apps.sales.domain.errors import BillIdTakenError
 from apps.sales.domain.flags import BILL_NO_CONFLICT
-from apps.sales.models import Bill, BillItem, Payment
+from apps.sales.models import Bill, BillItem, Payment, ReturnItem
 
 # First key of the two-key advisory lock taken per counter for a bill batch.
 _BILL_BATCH_LOCK = 7301
@@ -25,6 +27,8 @@ class BillRepository(Protocol):
     def by_bill_no(self, tenant_id: int, bill_no: str) -> Bill | None: ...
 
     def items_of(self, bill: Bill) -> list[BillItem]: ...
+
+    def returned_qty(self, bill: Bill) -> dict[int, Decimal]: ...
 
 
 class DjangoBillRepository:
@@ -66,6 +70,16 @@ class DjangoBillRepository:
         return list(
             BillItem.objects.for_tenant(bill.tenant_id).filter(bill=bill).order_by("line_no")
         )
+
+    def returned_qty(self, bill: Bill) -> dict[int, Decimal]:
+        """Quantity already returned per bill item."""
+        rows = (
+            ReturnItem.objects.for_tenant(bill.tenant_id)
+            .filter(bill_item__bill_id=bill.id)
+            .values_list("bill_item_id")
+            .annotate(qty=Sum("qty"))
+        )
+        return dict(rows)
 
 
 bill_repository = DjangoBillRepository()

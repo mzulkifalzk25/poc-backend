@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 import pytest
 
 from apps.tenants.models import Counter
@@ -108,3 +110,45 @@ def test_another_tenants_bill_is_not_found(till):
 def test_lookup_is_for_signed_in_cashiers_only(pc, tenant):
     assert pc.get(LOOKUP_URL, {"bill_no": "002000743"}).status_code == 403
     assert authed_client(tenant)[0].get(LOOKUP_URL, {"bill_no": "002000743"}).status_code == 403
+
+
+def _return_now(till, product, qty: str, bill_no: str = "002000743") -> None:
+    body = {
+        "id": str(uuid4()),
+        "shift_id": str(uuid4()),
+        "lines": [{"product_id": product.id, "qty": qty}],
+        "reason": "changed_mind",
+        "restock": True,
+        "refund": {"method": "cash", "amount": "0.00"},
+        "original_bill_no": bill_no,
+        "returned_at": "2026-09-27T07:52:10Z",
+    }
+    till.post("/api/v1/returns/batch", {"returns": [body]}, format="json")
+
+
+@pytest.mark.django_db
+def test_returned_quantities_come_off_the_returnable_quantity(
+    pc, till, counter, cashier, oil, rice
+):
+    _upload(pc, counter, bill(cashier.id, [line(oil, "5.000"), line(rice, line_no=2)]))
+    _return_now(till, oil, "2.000")
+    _return_now(till, rice, "3.000")
+
+    lines = till.get(LOOKUP_URL, {"bill_no": "002-000743"}).json()["lines"]
+
+    assert [(item["qty"], item["returnable_qty"]) for item in lines] == [
+        ("5.000", "3.000"),
+        ("1.000", "0.000"),
+    ]
+
+
+@pytest.mark.django_db
+def test_a_return_without_the_bill_number_leaves_the_bill_returnable(
+    pc, till, counter, cashier, oil
+):
+    _upload(pc, counter, bill(cashier.id, [line(oil, "5.000")]))
+    _return_now(till, oil, "2.000", bill_no="")
+
+    [item] = till.get(LOOKUP_URL, {"bill_no": "002000743"}).json()["lines"]
+
+    assert item["returnable_qty"] == "5.000"
