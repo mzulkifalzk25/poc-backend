@@ -106,3 +106,18 @@ def test_login_resolves_the_correct_tenant_when_usernames_differ(client):
 
     assert response.status_code == 200
     assert response.json()["tenant"]["slug"] == "other-mart"
+
+
+@pytest.mark.django_db(databases=["default", "audit"])
+def test_the_django_admin_cannot_log_in_to_the_store_app(client):
+    admin = User(tenant_id=1, full_name="Django admin", role="owner", email="admin@example.com")
+    admin.is_django_admin = True
+    admin.set_password("correct horse battery staple")
+    admin.save()
+
+    response = client.post(
+        LOGIN_URL, {"login": "admin@example.com", "password": "correct horse battery staple"}
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "invalid_credentials"

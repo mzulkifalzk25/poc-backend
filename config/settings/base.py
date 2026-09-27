@@ -32,6 +32,10 @@ INSTALLED_APPS = [
 ]
 
 AUTH_USER_MODEL = "accounts.User"
+# The Django admin is for the product maintainer only: one account, this email.
+# Store owners and cashiers use the store app. Empty means nobody can sign in.
+DJANGO_ADMIN_EMAIL = os.environ.get("DJANGO_ADMIN_EMAIL", "")
+AUTHENTICATION_BACKENDS = ["apps.accounts.api.admin_backend.DjangoAdminBackend"]
 
 PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.Argon2PasswordHasher",

@@ -56,3 +56,27 @@ def test_one_pin_delay_row_per_cashier_and_counter():
 
     with pytest.raises(IntegrityError), transaction.atomic():
         PinDelay.objects.create(tenant_id=1, counter_id=1, user_id=1)
+
+
+def test_only_the_active_configured_django_admin_is_staff(settings):
+    settings.DJANGO_ADMIN_EMAIL = "admin@example.com"
+    owner = User(tenant_id=1, full_name="Sana Ahmed", role="owner", email="sana@example.com")
+    admin = User(
+        tenant_id=1,
+        full_name="Admin",
+        role="owner",
+        email="admin@example.com",
+        is_django_admin=True,
+    )
+    deactivated = User(
+        tenant_id=1,
+        full_name="Old",
+        role="owner",
+        email="admin@example.com",
+        is_django_admin=True,
+        is_active=False,
+    )
+
+    assert not owner.is_staff and not owner.has_module_perms("catalog")
+    assert admin.is_staff and admin.is_superuser and admin.has_perm("catalog.change_product")
+    assert not deactivated.is_staff and not deactivated.has_perm("catalog.change_product")

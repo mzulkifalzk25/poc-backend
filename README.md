@@ -47,6 +47,22 @@ barcodes, costs 80 to 90 percent of price, some low and out of stock), and
 counters 004 to 040, each activated with its own device token. The generated
 catalogue is the same on every run.
 
+## Django admin
+
+The Django admin at `/admin/` is for the product maintainer only: exactly one
+account, whose email is `DJANGO_ADMIN_EMAIL` in `.env`. Store owners and
+cashiers use the store app; they can never sign in to the Django admin, even
+with a correct password, and the Django admin cannot sign in to the store app.
+With `DJANGO_ADMIN_EMAIL` empty, nobody can sign in.
+
+```
+python manage.py create_django_admin    # asks for the password twice
+```
+
+Creates that one account, or resets its password when run again. Store data
+is view-only in the admin (the app's own rules and activity log apply to every
+change); tenants and the admin's own name and active flag can be edited.
+
 ## Layout
 
 Clean architecture per app under `apps/`: `domain/` (plain Python rules),
