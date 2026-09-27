@@ -17,7 +17,7 @@ from apps.accounts.models import PinDelay, User
 from apps.accounts.use_cases.staff import set_pin
 from apps.catalog.domain.product_rules import name_key, normalize_product_name
 from apps.catalog.models import Category, PriceHistory, Product
-from apps.inventory.models import StockLevel
+from apps.inventory.models import StockLevel, StockMovement
 from apps.shifts.models import Shift
 from apps.tenants.domain.device_token import generate_device_token, hash_device_token
 from apps.tenants.models import Counter, Device, DeviceCode, Tenant, TenantSettings
@@ -38,6 +38,7 @@ from scripts.seed.sample_data import (
 RESET_ORDER = (
     Shift,
     PinDelay,
+    StockMovement,
     StockLevel,
     PriceHistory,
     Product,
