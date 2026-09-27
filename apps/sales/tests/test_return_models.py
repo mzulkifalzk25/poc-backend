@@ -18,7 +18,7 @@ def counter() -> Counter:
 
 @pytest.fixture
 def cashier() -> User:
-    return User.objects.create(tenant_id=1, full_name="Zainab Khan", role="cashier", pin_hash="x")
+    return User.objects.create(tenant_id=1, full_name="Zainab Khan", role="cashier")
 
 
 def _item(ret, product, **extra) -> ReturnItem:
