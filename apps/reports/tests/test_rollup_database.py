@@ -9,8 +9,8 @@ from django.db import connection, transaction
 
 from apps.reports.models import SalesDaily, SalesDailyCashier, SalesDailyProduct, SalesHourly
 from apps.reports.use_cases.rollup import roll_up_pending
-from apps.sales.models import Bill, BillItem, Payment
-from apps.sales.tests.factories import make_product
+from apps.sales.models import Bill, BillItem, Payment, Return, ReturnItem
+from apps.sales.tests.factories import make_product, make_return
 from apps.shifts.tests.conftest import make_cashier
 from apps.tenants.models import Counter
 from apps.tenants.tests.helpers import make_tenant
@@ -83,6 +83,55 @@ def test_rolls_bills_up_into_every_report_table_once():
     assert not Bill.objects.filter(rolled_up_at__isnull=True).exists()
 
 
+def take_back(counter, cashier, product, restock=True, returned_at=SEPT_19_NOON_KARACHI):
+    ret = make_return(
+        counter,
+        cashier,
+        restock=restock,
+        refund_total="620.00",
+        returned_at=returned_at,
+        paid_from_drawer=True,
+    )
+    ReturnItem.objects.create(
+        tenant_id=counter.tenant_id,
+        return_record=ret,
+        product=product,
+        qty=D("1"),
+        price_source="current",
+        unit_price=product.price,
+        refund_amount=product.price,
+        tax_refund=D("0"),
+        cost_snapshot=product.cost,
+    )
+    return ret
+
+
+@pytest.mark.django_db
+def test_rolls_returns_up_as_refunds_once_without_touching_gross():
+    counter, cashier, oil = shop()
+    sell(counter, cashier, oil)
+    take_back(counter, cashier, oil)
+    take_back(counter, cashier, oil, restock=False)
+
+    assert roll_up_pending(datetime.now(UTC)) == 3
+    assert roll_up_pending(datetime.now(UTC)) == 0
+
+    day = SalesDaily.objects.get(tenant_id=counter.tenant_id)
+    assert (day.bills, day.gross) == (1, D("1240"))
+    assert (day.refund_count, day.refund_amount, day.refund_cost_recovered) == (
+        2,
+        D("1240"),
+        D("540"),
+    )
+    hour = SalesHourly.objects.get(tenant_id=counter.tenant_id)
+    assert (hour.refund_count, hour.refund_amount) == (2, D("1240"))
+    product = SalesDailyProduct.objects.get(tenant_id=counter.tenant_id)
+    assert (product.qty, product.returns_qty, product.refund_amount) == (D("2"), D("2"), D("1240"))
+    by_cashier = SalesDailyCashier.objects.get(tenant_id=counter.tenant_id)
+    assert (by_cashier.refund_count, by_cashier.refund_amount) == (2, D("1240"))
+    assert not Return.objects.filter(rolled_up_at__isnull=True).exists()
+
+
 @pytest.mark.django_db
 def test_a_later_upload_adds_to_its_own_sale_day():
     counter, cashier, oil = shop()
@@ -118,7 +167,7 @@ def test_the_command_reports_how_many_bills_it_added(capsys):
 
     call_command("run_rollup")
 
-    assert "Rolled up 1 bills." in capsys.readouterr().out
+    assert "Rolled up 1 bills and returns." in capsys.readouterr().out
 
 
 @pytest.mark.django_db(transaction=True)
