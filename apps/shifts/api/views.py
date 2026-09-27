@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from django.http import JsonResponse
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -14,12 +16,14 @@ from apps.shifts.domain.errors import (
     CashierNotFoundError,
     ShiftAlreadyOpenError,
     ShiftIdTakenError,
+    ShiftNotFoundError,
 )
 from apps.shifts.use_cases.cashier import shift_cashier
+from apps.shifts.use_cases.close_shift import ShiftClosing, close_shift
 from apps.shifts.use_cases.open_shift import ShiftOpening, current_shift, open_shift
 
-from .presenters import present_shift
-from .serializers import OpenShiftRequestSerializer
+from .presenters import present_close, present_shift
+from .serializers import CloseShiftRequestSerializer, OpenShiftRequestSerializer
 
 
 class OpenShiftView(APIView):
@@ -67,6 +71,33 @@ class CurrentShiftView(APIView):
         if shift is None:
             return JsonResponse(None, safe=False)
         return Response(present_shift(shift))
+
+
+class CloseShiftView(APIView):
+    authentication_classes = COUNTER_AUTHENTICATION
+    permission_classes = [IsCounterDeviceOrCashier]
+
+    def post(self, request, shift_id: UUID):
+        context = counter_context(request)
+        serializer = CloseShiftRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        closing = ShiftClosing(
+            tenant_id=context.tenant_id,
+            counter_id=context.counter_id,
+            device_id=context.device_id,
+            cashier_id=cashier_for(context, data.get("cashier_id")),
+            shift_id=shift_id,
+            closed_at=data["closed_at"],
+            counted_cash=data["counted_cash"],
+            local_summary=data["local_summary"],
+            unsynced_count=data["unsynced_count"],
+        )
+        try:
+            shift = close_shift(closing)
+        except ShiftNotFoundError:
+            raise ApiError(code="not_found", message="Shift not found.", status_code=404) from None
+        return Response(present_close(shift))
 
 
 def cashier_for(context: CounterContext, body_cashier_id: int | None) -> int:

@@ -27,3 +27,12 @@ def _time(value: datetime | None) -> str | None:
 
 def _money(value: Decimal | None) -> str | None:
     return None if value is None else f"{Decimal(value):.2f}"
+
+
+def present_close(shift: Shift) -> dict:
+    return {
+        "expected_cash": _money(shift.expected_cash),
+        "difference": _money(shift.difference),
+        "server_summary": shift.summary["server"],
+        "mismatch": shift.summary["mismatch"],
+    }
