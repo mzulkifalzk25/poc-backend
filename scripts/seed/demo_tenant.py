@@ -11,10 +11,9 @@ from datetime import datetime
 
 from django.db import connection, transaction
 
-from apps.accounts.domain.pin import generate_pin
+from apps.accounts.domain.passwords import generate_password
 from apps.accounts.domain.role_rules import CASHIER, OWNER
-from apps.accounts.models import PinDelay, User
-from apps.accounts.use_cases.staff import set_pin
+from apps.accounts.models import User
 from apps.catalog.domain.product_rules import name_key, normalize_product_name
 from apps.catalog.models import Category, PriceHistory, Product
 from apps.inventory.models import StockLevel, StockMovement
@@ -47,7 +46,6 @@ RESET_ORDER = (
     BillItem,
     Bill,
     Shift,
-    PinDelay,
     StockMovement,
     StockLevel,
     PriceHistory,
@@ -65,7 +63,7 @@ _BATCH_SIZE = 2000
 class SeedResult:
     tenant: Tenant
     owner_password: str
-    pins: dict[str, str]
+    cashier_passwords: dict[str, str]
     device_tokens: dict[str, str]
     activation_codes: dict[str, IssuedCode]
     product_count: int
@@ -78,7 +76,7 @@ def seed_demo_tenant(
         tenant = _reset_tenant()
         counter_rows = _create_counters(tenant, counters)
         owner, password = _create_owner(tenant)
-        pins = _create_cashiers(tenant, counter_rows)
+        cashier_passwords = _create_cashiers(tenant, counter_rows)
         tokens = _activate_counters(counters, counter_rows, now)
         _create_catalogue(tenant, products)
         codes = {
@@ -88,7 +86,7 @@ def seed_demo_tenant(
             for sample in counters
             if not sample.activated
         }
-    return SeedResult(tenant, password, pins, tokens, codes, len(products))
+    return SeedResult(tenant, password, cashier_passwords, tokens, codes, len(products))
 
 
 def _reset_tenant() -> Tenant:
@@ -128,20 +126,21 @@ def _create_owner(tenant: Tenant) -> tuple[User, str]:
 
 
 def _create_cashiers(tenant: Tenant, counters: dict[str, Counter]) -> dict[str, str]:
-    pins = {}
+    passwords = {}
     for sample in CASHIERS:
         counter = counters.get(sample.counter_code or "")
         cashier = User(
             tenant_id=tenant.id,
             full_name=sample.full_name,
             role=CASHIER,
+            email=sample.email,
             is_active=sample.is_active,
             default_counter_id=counter.id if counter else None,
         )
-        pins[sample.full_name] = generate_pin()
-        set_pin(cashier, pins[sample.full_name])
+        passwords[sample.full_name] = generate_password()
+        cashier.set_password(passwords[sample.full_name])
         cashier.save()
-    return pins
+    return passwords
 
 
 def _activate_counters(

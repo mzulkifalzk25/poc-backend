@@ -34,9 +34,7 @@ def client(device):
 
 @pytest.fixture
 def cashier(tenant) -> User:
-    return User.objects.create(
-        tenant_id=tenant.id, full_name="Zainab Khan", role="cashier", pin_hash="x"
-    )
+    return User.objects.create(tenant_id=tenant.id, full_name="Zainab Khan", role="cashier")
 
 
 def _cashier_client(cashier: User, device: Device) -> APIClient:
@@ -51,11 +49,8 @@ def _heartbeat_url(counter: Counter) -> str:
 
 
 @pytest.mark.django_db
-def test_bootstrap_gives_the_counter_settings_sequence_and_roster(tenant, client, cashier):
+def test_bootstrap_gives_the_counter_settings_and_sequence(tenant, client):
     TenantSettings.objects.create(tenant=tenant, tax_rate="17.00", prices_include_tax=True)
-    User.objects.create(
-        tenant_id=make_tenant("other-mart").id, full_name="Other", role="cashier", pin_hash="x"
-    )
 
     response = client.get(BOOTSTRAP_URL)
 
@@ -67,7 +62,6 @@ def test_bootstrap_gives_the_counter_settings_sequence_and_roster(tenant, client
     assert body["settings"]["prices_include_tax"] is True
     assert body["settings"]["block_when_out_of_stock"] is False
     assert body["settings"]["receipt_paper_mm"] == 80
-    assert body["roster"] == [{"id": cashier.id, "full_name": "Zainab Khan", "initials": "ZK"}]
     assert body["server_time"]
 
 
@@ -150,7 +144,7 @@ def test_heartbeat_for_another_counter_is_404(tenant, client):
 @pytest.mark.django_db
 def test_heartbeat_rejects_another_tenants_cashier(counter, client):
     theirs = User.objects.create(
-        tenant_id=make_tenant("other-mart").id, full_name="Z", role="cashier", pin_hash="x"
+        tenant_id=make_tenant("other-mart").id, full_name="Z", role="cashier"
     )
 
     response = client.post(

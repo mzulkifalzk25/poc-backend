@@ -34,9 +34,7 @@ def test_owner_is_allowed():
 
 @pytest.mark.django_db
 def test_cashier_is_forbidden():
-    cashier = User.objects.create(
-        tenant_id=1, full_name="Zainab Khan", role="cashier", pin_hash="x"
-    )
+    cashier = User.objects.create(tenant_id=1, full_name="Zainab Khan", role="cashier")
 
     request = factory.get("/x/", HTTP_AUTHORIZATION=f"Bearer {_token_for(cashier)}")
     response = _OwnerOnlyView.as_view()(request)

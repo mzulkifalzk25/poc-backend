@@ -20,7 +20,7 @@ def counter() -> Counter:
 
 @pytest.fixture
 def cashier() -> User:
-    return User.objects.create(tenant_id=1, full_name="Zainab Khan", role="cashier", pin_hash="x")
+    return User.objects.create(tenant_id=1, full_name="Zainab Khan", role="cashier")
 
 
 def _item(bill: Bill, product, line_no: int = 1) -> BillItem:
@@ -68,7 +68,7 @@ def test_a_conflicting_bill_number_is_kept_when_flagged(counter, cashier):
 @pytest.mark.django_db
 def test_other_tenants_reuse_bill_numbers(counter, cashier):
     other_counter = Counter.objects.create(tenant_id=2, name="Counter 2", code="002")
-    other_cashier = User.objects.create(tenant_id=2, full_name="A B", role="cashier", pin_hash="x")
+    other_cashier = User.objects.create(tenant_id=2, full_name="A B", role="cashier")
     make_bill(counter, cashier)
 
     assert make_bill(other_counter, other_cashier).bill_no == "002000001"

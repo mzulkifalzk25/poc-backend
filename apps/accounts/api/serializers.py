@@ -1,7 +1,6 @@
 from rest_framework import serializers
 
 from apps.accounts.domain.names import normalize_full_name
-from apps.accounts.domain.pin import is_valid_pin
 from apps.accounts.domain.role_rules import CASHIER, ROLES
 
 
@@ -23,8 +22,7 @@ class _BlankAsNullCharField(serializers.CharField):
 class StaffCreateSerializer(serializers.Serializer):
     full_name = serializers.CharField(max_length=255)
     role = serializers.ChoiceField(choices=ROLES, default=CASHIER)
-    pin = serializers.CharField(required=False, write_only=True)
-    password = serializers.CharField(required=False, write_only=True)
+    password = serializers.CharField(write_only=True)
     email = _BlankAsNullCharField(required=False, allow_null=True, allow_blank=True, max_length=254)
     username = _BlankAsNullCharField(
         required=False, allow_null=True, allow_blank=True, max_length=150
@@ -33,11 +31,6 @@ class StaffCreateSerializer(serializers.Serializer):
 
     def validate_full_name(self, value: str) -> str:
         return _non_empty_name(value)
-
-    def validate_pin(self, value: str) -> str:
-        if not is_valid_pin(value):
-            raise serializers.ValidationError("PIN must be exactly 4 digits.")
-        return value
 
 
 class StaffUpdateSerializer(serializers.Serializer):

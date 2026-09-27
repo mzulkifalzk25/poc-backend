@@ -15,7 +15,7 @@ def client() -> APIClient:
 
 
 def _authed_client(tenant: Tenant, role: str = "owner") -> tuple[APIClient, User]:
-    kwargs = {"username": f"user-{tenant.id}"} if role != "cashier" else {"pin_hash": "x"}
+    kwargs = {"username": f"user-{tenant.id}"} if role != "cashier" else {}
     user = User(tenant_id=tenant.id, full_name="Test User", role=role, **kwargs)
     if role != "cashier":
         user.set_password("password123")

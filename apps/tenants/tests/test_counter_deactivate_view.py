@@ -40,9 +40,7 @@ def device(counter) -> tuple[Device, str]:
 
 @pytest.fixture
 def cashier(tenant) -> User:
-    return User.objects.create(
-        tenant_id=tenant.id, full_name="Zainab Khan", role="cashier", pin_hash="x"
-    )
+    return User.objects.create(tenant_id=tenant.id, full_name="Zainab Khan", role="cashier")
 
 
 def _url(counter: Counter) -> str:

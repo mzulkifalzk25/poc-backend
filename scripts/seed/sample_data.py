@@ -25,6 +25,10 @@ class SampleCashier:
     counter_code: str | None
     is_active: bool = True
 
+    @property
+    def email(self) -> str:
+        return f"{self.full_name.lower().replace(' ', '.')}@example.com"
+
 
 @dataclass(frozen=True)
 class SampleCategory:

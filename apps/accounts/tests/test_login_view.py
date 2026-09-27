@@ -73,9 +73,7 @@ def test_unknown_login_returns_invalid_credentials(client):
 @pytest.mark.django_db(databases=["default", "audit"])
 def test_cashier_gets_the_same_invalid_credentials_error(client):
     tenant = Tenant.objects.create(name="Fresh Basket Mart", slug="fresh-basket-mart")
-    User.objects.create(
-        tenant_id=tenant.id, full_name="Zainab Khan", role="cashier", pin_hash="x", username=None
-    )
+    User.objects.create(tenant_id=tenant.id, full_name="Zainab Khan", role="cashier", username=None)
 
     response = client.post(LOGIN_URL, {"login": "Zainab Khan", "password": "whatever"})
 

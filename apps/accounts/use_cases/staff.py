@@ -1,14 +1,12 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from django.conf import settings
-from django.contrib.auth.hashers import make_password
 from django.db import transaction
 from django.db.models import QuerySet
 
 from apps.accounts.domain.names import normalize_full_name
-from apps.accounts.domain.pin import make_pin_verifier, new_salt
-from apps.accounts.domain.role_rules import CASHIER, RoleFields, RoleRuleError, validate_role_fields
+from apps.accounts.domain.passwords import generate_password
+from apps.accounts.domain.role_rules import RoleFields, RoleRuleError, validate_role_fields
 from apps.accounts.domain.staff_errors import StaffConflictError
 from apps.accounts.models import User
 from apps.accounts.repositories.users import UserRepository, user_repository
@@ -29,7 +27,6 @@ class StaffInvalidError(Exception):
 class NewStaff:
     full_name: str
     role: str
-    pin: str | None = None
     password: str | None = None
     email: str | None = None
     username: str | None = None
@@ -40,12 +37,6 @@ class NewStaff:
 class Actor:
     tenant_id: int
     user_id: int
-
-
-def set_pin(user: User, pin: str) -> None:
-    """Argon2 for the server; a PBKDF2 verifier for offline checks on counters."""
-    user.pin_hash = make_password(pin, hasher="argon2")
-    user.pin_verifier = make_pin_verifier(pin, new_salt(), settings.PIN_VERIFIER_ITERATIONS)
 
 
 def create_staff(
@@ -60,7 +51,6 @@ def create_staff(
             has_email=bool(new.email),
             has_username=bool(new.username),
             has_password=bool(new.password),
-            has_pin=bool(new.pin),
         ),
     )
     _check_counter(counters, actor.tenant_id, new.default_counter_id)
@@ -72,10 +62,7 @@ def create_staff(
         username=new.username,
         default_counter_id=new.default_counter_id,
     )
-    if new.role == CASHIER:
-        set_pin(user, new.pin or "")
-    else:
-        user.set_password(new.password)
+    user.set_password(new.password)
     with transaction.atomic():
         users.save_unique(user)
         _log(actor, "staff_created", user, before=None)
@@ -98,18 +85,25 @@ def update_staff(
         raise StaffConflictError("cannot_deactivate_self", "is_active")
     _check_role_fields(
         user.role,
-        RoleFields(
-            has_email=bool(user.email),
-            has_username=bool(user.username),
-            has_password=bool(user.password),
-            has_pin=bool(user.pin_hash),
-        ),
+        RoleFields(has_email=bool(user.email), has_username=bool(user.username), has_password=True),
     )
     _check_counter(counters, actor.tenant_id, user.default_counter_id)
     with transaction.atomic():
         users.save_unique(user)
         _log(actor, "staff_updated", user, before=before)
     return user
+
+
+def reset_password(
+    actor: Actor, user: User, now: datetime, users: UserRepository = user_repository
+) -> str:
+    """Returns the new password once; the same pattern PIN reset used."""
+    password = generate_password()
+    user.set_password(password)
+    with transaction.atomic():
+        users.save(user, ["password", "updated_at"])
+        _log(actor, "password_reset", user, before=None)
+    return password
 
 
 def find_staff(
@@ -121,7 +115,6 @@ def find_staff(
 def staff_rows(
     tenant_id: int, now: datetime, filters: dict, users: UserRepository = user_repository
 ) -> QuerySet[User]:
-    """The staff table, ordered by name, each row with `pin_delay_until`."""
     return users.staff_list(tenant_id, now, filters)
 
 

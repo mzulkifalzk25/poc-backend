@@ -15,9 +15,7 @@ def cashier_client(cashier: User, device: Device) -> APIClient:
 
 
 def make_cashier(tenant: Tenant, name: str = "Zainab Khan", **fields) -> User:
-    return User.objects.create(
-        tenant_id=tenant.id, full_name=name, role="cashier", pin_hash="x", **fields
-    )
+    return User.objects.create(tenant_id=tenant.id, full_name=name, role="cashier", **fields)
 
 
 @pytest.fixture
