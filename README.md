@@ -49,9 +49,10 @@ catalogue is the same on every run.
 
 ## Report rollup
 
-Reports never read raw bills. The rollup adds uploaded bills to the pre-summed
-tables (`sales_hourly`, `sales_daily`, `sales_daily_product`,
-`sales_daily_cashier`), bucketed by the time of sale in the store's time zone.
+Reports never read raw bills. The rollup adds uploaded bills and returns to the
+pre-summed tables (`sales_hourly`, `sales_daily`, `sales_daily_product`,
+`sales_daily_cashier`), bucketed by the time of sale or return in the store's
+time zone. Sales stay gross; returns fill the refund columns.
 
 ```
 python manage.py run_rollup                   # one pass: everything waiting now

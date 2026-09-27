@@ -6,11 +6,31 @@ from uuid import UUID
 
 from django.db import connection
 
-from apps.reports.domain.rollup import RollupDeltas, SoldBill, SoldLine
-from apps.sales.models import Bill, BillItem, Payment
+from apps.reports.domain.rollup import (
+    RefundedReturn,
+    ReturnedLine,
+    RollupDeltas,
+    SoldBill,
+    SoldLine,
+)
+from apps.sales.models import Bill, BillItem, Payment, Return, ReturnItem
 from apps.tenants.models import Tenant
 
-_SALES_COLUMNS = ("bills", "items", "gross", "tax", "cash", "card", "wallet", "cost")
+_SALES_COLUMNS = (
+    "bills",
+    "items",
+    "gross",
+    "tax",
+    "cash",
+    "card",
+    "wallet",
+    "cost",
+    "refund_count",
+    "refund_amount",
+    "refund_cost_recovered",
+)
+_PRODUCT_COLUMNS = ("qty", "revenue", "cost", "returns_qty", "refund_amount")
+_CASHIER_COLUMNS = ("bills", "revenue", "refund_count", "refund_amount")
 # Keys of the session advisory lock that lets only one rollup runner work at a time.
 _RUNNER_LOCK = (7302, 0)
 
@@ -18,11 +38,15 @@ _RUNNER_LOCK = (7302, 0)
 class RollupRepository(Protocol):
     def claim_pending(self, limit: int) -> list[SoldBill]: ...
 
+    def claim_pending_returns(self, limit: int) -> list[RefundedReturn]: ...
+
     def timezones(self, tenant_ids: set[int]) -> dict[int, str]: ...
 
     def add(self, deltas: RollupDeltas, now: datetime) -> None: ...
 
     def mark_rolled_up(self, bill_ids: list[UUID], now: datetime) -> None: ...
+
+    def mark_returns_rolled_up(self, return_ids: list[UUID], now: datetime) -> None: ...
 
     def try_lock_runner(self) -> bool: ...
 
@@ -45,9 +69,9 @@ def _upsert(table: str, keys: Sequence[str], sums: Sequence[str], rows: list[tup
         cursor.executemany(sql, sorted(rows, key=lambda row: row[: len(keys)]))
 
 
-def _sales_rows(deltas: dict, now: datetime) -> list[tuple]:
+def _rows(deltas: dict, columns: Sequence[str], now: datetime) -> list[tuple]:
     return [
-        (*key, *(getattr(delta, name) for name in _SALES_COLUMNS), now, now)
+        (*key, *(getattr(delta, name) for name in columns), now, now)
         for key, delta in deltas.items()
     ]
 
@@ -87,6 +111,39 @@ class DjangoRollupRepository:
             for bill in bills
         ]
 
+    def claim_pending_returns(self, limit: int) -> list[RefundedReturn]:
+        """Same claim as for bills: oldest upload first, locked rows skipped."""
+        returns = list(
+            Return.objects.filter(rolled_up_at__isnull=True)
+            .order_by("received_at")
+            .select_for_update(skip_locked=True)[:limit]
+        )
+        ids = [ret.id for ret in returns]
+        tenants = {ret.tenant_id for ret in returns}
+        lines: dict[UUID, list[ReturnedLine]] = defaultdict(list)
+        for item in ReturnItem.objects.filter(tenant_id__in=tenants, return_record_id__in=ids):
+            lines[item.return_record_id].append(
+                ReturnedLine(
+                    item.product_id,
+                    item.qty,
+                    item.refund_amount + item.tax_refund,
+                    item.cost_snapshot,
+                )
+            )
+        return [
+            RefundedReturn(
+                id=ret.id,
+                tenant_id=ret.tenant_id,
+                counter_id=ret.counter_id,
+                cashier_id=ret.cashier_id,
+                returned_at=ret.returned_at,
+                refund_total=ret.refund_total,
+                restock=ret.restock,
+                lines=tuple(lines[ret.id]),
+            )
+            for ret in returns
+        ]
+
     def timezones(self, tenant_ids: set[int]) -> dict[int, str]:
         return dict(Tenant.objects.filter(id__in=tenant_ids).values_list("id", "timezone"))
 
@@ -95,29 +152,32 @@ class DjangoRollupRepository:
             "sales_hourly",
             ("tenant_id", "counter_id", "hour_start"),
             _SALES_COLUMNS,
-            _sales_rows(deltas.hourly, now),
+            _rows(deltas.hourly, _SALES_COLUMNS, now),
         )
         _upsert(
             "sales_daily",
             ("tenant_id", "local_date"),
             _SALES_COLUMNS,
-            _sales_rows(deltas.daily, now),
+            _rows(deltas.daily, _SALES_COLUMNS, now),
         )
         _upsert(
             "sales_daily_product",
             ("tenant_id", "local_date", "product_id"),
-            ("qty", "revenue", "cost"),
-            [(*key, d.qty, d.revenue, d.cost, now, now) for key, d in deltas.products.items()],
+            _PRODUCT_COLUMNS,
+            _rows(deltas.products, _PRODUCT_COLUMNS, now),
         )
         _upsert(
             "sales_daily_cashier",
             ("tenant_id", "local_date", "cashier_id"),
-            ("bills", "revenue"),
-            [(*key, d.bills, d.revenue, now, now) for key, d in deltas.cashiers.items()],
+            _CASHIER_COLUMNS,
+            _rows(deltas.cashiers, _CASHIER_COLUMNS, now),
         )
 
     def mark_rolled_up(self, bill_ids: list[UUID], now: datetime) -> None:
         Bill.objects.filter(id__in=bill_ids).update(rolled_up_at=now)
+
+    def mark_returns_rolled_up(self, return_ids: list[UUID], now: datetime) -> None:
+        Return.objects.filter(id__in=return_ids).update(rolled_up_at=now)
 
     def try_lock_runner(self) -> bool:
         """Held by this database session until `unlock_runner` or disconnect."""
