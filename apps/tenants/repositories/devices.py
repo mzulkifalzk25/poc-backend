@@ -19,6 +19,8 @@ class DeviceRepository(Protocol):
         self, tenant_id: int, device_id: int, now: datetime, unsynced_count: int, app_version: str
     ) -> None: ...
 
+    def revoke_live(self, counter: Counter, user_id: int, now: datetime) -> Device | None: ...
+
 
 class DjangoDeviceRepository:
     def by_token_hash(self, token_hash: str) -> Device | None:
@@ -57,6 +59,18 @@ class DjangoDeviceRepository:
         Device.objects.for_tenant(tenant_id).filter(id=device_id).update(
             last_seen_at=now, unsynced_count=unsynced_count, app_version=app_version
         )
+
+    def revoke_live(self, counter: Counter, user_id: int, now: datetime) -> Device | None:
+        device = (
+            Device.objects.for_tenant(counter.tenant_id)
+            .select_for_update()
+            .filter(counter=counter, revoked_at__isnull=True)
+            .first()
+        )
+        if device is not None:
+            device.revoked_at, device.revoked_by = now, user_id
+            device.save(update_fields=["revoked_at", "revoked_by", "updated_at"])
+        return device
 
 
 device_repository = DjangoDeviceRepository()

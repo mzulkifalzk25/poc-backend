@@ -3,6 +3,7 @@ from typing import Protocol
 
 from django.db.models import Exists, OuterRef, QuerySet, Subquery
 
+from apps.shifts.models import Shift
 from apps.tenants.models import Counter, Device, DeviceCode
 
 
@@ -24,7 +25,8 @@ class CounterRepository(Protocol):
 
 class DjangoCounterRepository:
     def with_device_state(self, tenant_id: int, now: datetime) -> QuerySet[Counter]:
-        """One query for the counters table: live PC details and the ready code."""
+        """One query for the counters table: live PC details, the ready code and
+        whether a shift is open."""
         devices = Device.objects.for_tenant(tenant_id).filter(counter=OuterRef("pk"))
         live = devices.filter(revoked_at__isnull=True)
         ready_codes = (
@@ -37,8 +39,12 @@ class DjangoCounterRepository:
             )
             .order_by("-expires_at")
         )
+        open_shifts = Shift.objects.for_tenant(tenant_id).filter(
+            counter=OuterRef("pk"), status=Shift.Status.OPEN
+        )
         return Counter.objects.for_tenant(tenant_id).annotate(
             has_live_device=Exists(live),
+            has_open_shift=Exists(open_shifts),
             had_revoked_device=Exists(devices.filter(revoked_at__isnull=False)),
             live_last_seen_at=Subquery(live.values("last_seen_at")[:1]),
             live_app_version=Subquery(live.values("app_version")[:1]),

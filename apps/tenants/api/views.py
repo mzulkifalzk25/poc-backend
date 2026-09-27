@@ -9,8 +9,11 @@ from apps.tenants.domain.counter_rules import CounterCodeLockedError
 from apps.tenants.models import Counter, TenantSettings
 from apps.tenants.use_cases.counters import (
     CounterCodeExistsError,
+    CounterNotFoundError,
+    CounterShiftOpenError,
     counters_table,
     create_counter,
+    deactivate_counter,
     update_counter,
 )
 from apps.tenants.use_cases.settings import tenant_settings, update_settings
@@ -94,3 +97,22 @@ class CounterDetailView(RetrieveUpdateAPIView):
             ) from None
         except CounterCodeExistsError:
             raise _code_exists() from None
+
+
+class CounterDeactivateView(APIView):
+    permission_classes = [IsOwner]
+
+    def post(self, request, pk: int):
+        try:
+            deactivate_counter(request.user.tenant_id, request.user.id, pk, timezone.now())
+        except CounterNotFoundError:
+            raise ApiError(
+                code="not_found", message="Counter not found.", status_code=404
+            ) from None
+        except CounterShiftOpenError:
+            raise ApiError(
+                code="shift_open",
+                message="This counter has an open shift. Close it before deactivating.",
+                status_code=409,
+            ) from None
+        return Response(status=204)

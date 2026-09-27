@@ -21,6 +21,8 @@ from apps.shifts.domain.errors import (
 from apps.shifts.use_cases.cashier import shift_cashier
 from apps.shifts.use_cases.close_shift import ShiftClosing, close_shift
 from apps.shifts.use_cases.open_shift import ShiftOpening, current_shift, open_shift
+from apps.tenants.api.device_auth import device_revoked
+from apps.tenants.use_cases.device_access import DeviceRevokedError
 
 from .presenters import present_close, present_shift
 from .serializers import CloseShiftRequestSerializer, OpenShiftRequestSerializer
@@ -44,6 +46,8 @@ class OpenShiftView(APIView):
             ) from None
         except ShiftIdTakenError:
             raise field_error("id", "This shift id is already used.") from None
+        except DeviceRevokedError:
+            raise device_revoked() from None
         return Response(present_shift(opened.shift), status=201 if opened.created else 200)
 
 

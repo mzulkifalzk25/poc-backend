@@ -9,6 +9,9 @@ from apps.audit.use_cases.record_activity import ActivityEntry, record_activity
 from apps.shifts.domain.errors import ShiftIdTakenError
 from apps.shifts.models import Shift
 from apps.shifts.repositories.shifts import ShiftRepository, shift_repository
+from apps.tenants.repositories.counters import CounterRepository, counter_repository
+from apps.tenants.repositories.devices import DeviceRepository, device_repository
+from apps.tenants.use_cases.device_access import ensure_device_live
 
 
 @dataclass(frozen=True)
@@ -28,14 +31,22 @@ class OpenedShift:
     created: bool
 
 
-def open_shift(opening: ShiftOpening, shifts: ShiftRepository = shift_repository) -> OpenedShift:
-    """Idempotent on the client UUID: a retry returns the stored shift."""
+def open_shift(
+    opening: ShiftOpening,
+    shifts: ShiftRepository = shift_repository,
+    counters: CounterRepository = counter_repository,
+    devices: DeviceRepository = device_repository,
+) -> OpenedShift:
+    """Idempotent on the client UUID: a retry returns the stored shift. The
+    counter row lock orders this against counter deactivation."""
     existing = _same_counter_shift(opening, shifts)
     if existing is not None:
         return OpenedShift(existing, created=False)
     shift = _new_shift(opening)
     try:
         with transaction.atomic():
+            counters.lock(opening.tenant_id, opening.counter_id)
+            ensure_device_live(opening.tenant_id, opening.device_id, devices)
             shifts.add(shift)
             _log_opened(shift, opening.device_id)
     except ShiftIdTakenError:

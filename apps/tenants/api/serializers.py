@@ -105,7 +105,7 @@ class CounterSerializer(serializers.ModelSerializer):
         return format_bill_no(obj.code, next_bill_no(obj.last_bill_seq))
 
     def get_has_open_shift(self, obj: Counter) -> bool:
-        return False  # shifts arrive in Step B5
+        return getattr(obj, "has_open_shift", False)
 
     def get_has_bills(self, obj: Counter) -> bool:
         return obj.last_bill_seq > 0
