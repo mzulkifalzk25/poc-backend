@@ -13,6 +13,8 @@ class CounterRepository(Protocol):
 
     def save(self, counter: Counter) -> None: ...
 
+    def lock(self, tenant_id: int, counter_id: int) -> Counter | None: ...
+
 
 class DjangoCounterRepository:
     def with_device_state(self, tenant_id: int, now: datetime) -> QuerySet[Counter]:
@@ -46,6 +48,12 @@ class DjangoCounterRepository:
 
     def save(self, counter: Counter) -> None:
         counter.save()
+
+    def lock(self, tenant_id: int, counter_id: int) -> Counter | None:
+        """Row lock until the end of the caller's transaction."""
+        return (
+            Counter.objects.for_tenant(tenant_id).select_for_update().filter(id=counter_id).first()
+        )
 
 
 counter_repository = DjangoCounterRepository()

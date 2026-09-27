@@ -15,6 +15,9 @@ from apps.tenants.domain.activation_code import (
 )
 from apps.tenants.domain.device_token import generate_device_token, hash_device_token
 from apps.tenants.models import Counter, Device, DeviceCode
+from apps.tenants.repositories.activation_codes import ActivationCodeRepository, code_repository
+from apps.tenants.repositories.counters import CounterRepository, counter_repository
+from apps.tenants.repositories.devices import DeviceRepository, device_repository
 
 _REASONS = {
     CodeInvalidError: "code_invalid",
@@ -40,37 +43,32 @@ class Activation:
     counter: Counter
 
 
-def activate_device(raw_code: str, app_version: str, ip: str | None, now: datetime) -> Activation:
+def activate_device(
+    raw_code: str,
+    app_version: str,
+    ip: str | None,
+    now: datetime,
+    counters: CounterRepository = counter_repository,
+    devices: DeviceRepository = device_repository,
+    codes: ActivationCodeRepository = code_repository,
+) -> Activation:
     code = normalize_code(raw_code)
     if code is None:
         raise ActivationError("code_invalid")
     with transaction.atomic():
-        row = _lock_usable_code(code, now)
-        counter = (
-            Counter.objects.for_tenant(row.tenant_id).select_for_update().get(id=row.counter_id)
-        )
-        live = Device.objects.for_tenant(row.tenant_id).filter(
-            counter=counter, revoked_at__isnull=True
-        )
-        if live.exists():
+        row = _lock_usable_code(codes, code, now)
+        counter = counters.lock(row.tenant_id, row.counter_id)
+        if devices.counter_has_live_device(counter):
             raise ActivationError("counter_active", row.tenant_id, row.counter_id)
         token = generate_device_token()
-        device = Device.objects.create(
-            tenant_id=counter.tenant_id,
-            counter=counter,
-            token_hash=hash_device_token(token),
-            app_version=app_version,
-            last_seen_at=now,
-        )
-        row.used_at = now
-        row.save(update_fields=["used_at", "updated_at"])
+        device = devices.add(counter, hash_device_token(token), app_version, now)
+        codes.mark_used(row, now)
         _log_activation(counter, device, ip, now)
     return Activation(device_token=token, device=device, counter=counter)
 
 
-def _lock_usable_code(code: str, now: datetime) -> DeviceCode:
-    code_hash = hash_code(code, settings.SECRET_KEY)
-    row = DeviceCode.objects.select_for_update().filter(code_hash=code_hash).first()
+def _lock_usable_code(codes: ActivationCodeRepository, code: str, now: datetime) -> DeviceCode:
+    row = codes.lock_by_hash(hash_code(code, settings.SECRET_KEY))
     if row is None:
         raise ActivationError("code_invalid")
     try:
