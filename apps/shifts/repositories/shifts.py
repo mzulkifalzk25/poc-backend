@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import Protocol
 from uuid import UUID
 
@@ -15,6 +16,8 @@ class ShiftRepository(Protocol):
     def lock(self, tenant_id: int, shift_id: UUID) -> Shift | None: ...
 
     def open_at_counter(self, tenant_id: int, counter_id: int) -> Shift | None: ...
+
+    def cashiers_of(self, tenant_id: int, shift_ids: Iterable[UUID]) -> dict[UUID, int]: ...
 
     def add(self, shift: Shift) -> None: ...
 
@@ -35,6 +38,10 @@ class DjangoShiftRepository:
             .filter(counter_id=counter_id, status=Shift.Status.OPEN)
             .first()
         )
+
+    def cashiers_of(self, tenant_id: int, shift_ids: Iterable[UUID]) -> dict[UUID, int]:
+        shifts = Shift.objects.for_tenant(tenant_id).filter(id__in=list(set(shift_ids)))
+        return dict(shifts.values_list("id", "cashier_id"))
 
     def add(self, shift: Shift) -> None:
         """Insert only: a taken UUID or a second open shift is a domain error."""
