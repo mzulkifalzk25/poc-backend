@@ -19,9 +19,9 @@ _UNIQUE_CONSTRAINTS = {
 class UserRepository(Protocol):
     def login_candidates(self, login: str) -> list[User]: ...
 
-    def platform_admin(self, email: str) -> User | None: ...
+    def django_admin(self, email: str) -> User | None: ...
 
-    def platform_admin_by_id(self, user_id: int) -> User | None: ...
+    def django_admin_by_id(self, user_id: int) -> User | None: ...
 
     def in_tenant(self, tenant_id: int, user_id: int) -> User | None: ...
 
@@ -55,15 +55,15 @@ class DjangoUserRepository:
                 Q(email__iexact=login.strip()) | Q(username__iexact=login.strip()),
                 role__in=(OWNER, MANAGER),
                 is_active=True,
-                is_platform_admin=False,
+                is_django_admin=False,
             )[:2]
         )
 
-    def platform_admin(self, email: str) -> User | None:
-        return User.objects.filter(is_platform_admin=True, email__iexact=email.strip()).first()
+    def django_admin(self, email: str) -> User | None:
+        return User.objects.filter(is_django_admin=True, email__iexact=email.strip()).first()
 
-    def platform_admin_by_id(self, user_id: int) -> User | None:
-        return User.objects.filter(is_platform_admin=True, id=user_id).first()
+    def django_admin_by_id(self, user_id: int) -> User | None:
+        return User.objects.filter(is_django_admin=True, id=user_id).first()
 
     def in_tenant(self, tenant_id: int, user_id: int) -> User | None:
         return User.objects.for_tenant(tenant_id).filter(id=user_id).first()

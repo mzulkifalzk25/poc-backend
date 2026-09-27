@@ -4,26 +4,31 @@ from django.test import Client
 from django.urls import reverse
 
 from apps.accounts.models import User
-from apps.accounts.use_cases.platform_admin import save_platform_admin
+from apps.accounts.use_cases.django_admin import save_django_admin
 
 EMAIL = "admin@example.com"
 PASSWORD = "Blue-Kettle-Morning-42"
 
 
-@pytest.fixture
-def platform_admin(db) -> User:
-    save_platform_admin(EMAIL, PASSWORD)
-    return User.objects.get(is_platform_admin=True)
+@pytest.fixture(autouse=True)
+def _admin_email(settings):
+    settings.DJANGO_ADMIN_EMAIL = EMAIL
 
 
 @pytest.fixture
-def signed_in(platform_admin) -> Client:
+def django_admin(db) -> User:
+    save_django_admin(EMAIL, PASSWORD)
+    return User.objects.get(is_django_admin=True)
+
+
+@pytest.fixture
+def signed_in(django_admin) -> Client:
     client = Client()
     client.post(reverse("admin:login"), {"username": EMAIL, "password": PASSWORD})
     return client
 
 
-def test_the_platform_admin_signs_in_with_email_and_password(platform_admin):
+def test_the_django_admin_signs_in_with_email_and_password(django_admin):
     client = Client()
 
     response = client.post(reverse("admin:login"), {"username": EMAIL, "password": PASSWORD})
@@ -44,11 +49,11 @@ def test_a_store_owner_with_the_right_password_is_refused():
     )
 
     assert response.status_code == 200
-    assert "platform admin account" in response.content.decode()
+    assert "Django admin account" in response.content.decode()
     assert client.get(reverse("admin:index")).status_code == 302
 
 
-def test_every_registered_model_lists_for_the_platform_admin(signed_in):
+def test_every_registered_model_lists_for_the_django_admin(signed_in):
     for model in admin.site._registry:
         meta = model._meta
         url = reverse(f"admin:{meta.app_label}_{meta.model_name}_changelist")

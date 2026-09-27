@@ -1,7 +1,9 @@
+from django.conf import settings
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.db import models
 from django.db.models.functions import Lower
 
+from apps.accounts.domain.django_admin import is_django_admin_email
 from apps.accounts.domain.role_rules import ROLES
 from apps.core.models import TenantModel
 
@@ -28,7 +30,7 @@ class User(TenantModel, AbstractBaseUser):
     default_counter_id = models.BigIntegerField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     last_active_at = models.DateTimeField(null=True, blank=True)
-    is_platform_admin = models.BooleanField(default=False)
+    is_django_admin = models.BooleanField(default=False)
 
     USERNAME_FIELD = "id"
     REQUIRED_FIELDS: list[str] = []
@@ -60,8 +62,13 @@ class User(TenantModel, AbstractBaseUser):
 
     @property
     def is_staff(self) -> bool:
-        """Only an active platform admin may open the Django admin."""
-        return self.is_active and self.is_platform_admin
+        """Only the one active Django admin, with the email set on the server,
+        may open the Django admin."""
+        return (
+            self.is_active
+            and self.is_django_admin
+            and is_django_admin_email(self.email, settings.DJANGO_ADMIN_EMAIL)
+        )
 
     @property
     def is_superuser(self) -> bool:

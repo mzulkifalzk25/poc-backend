@@ -109,9 +109,9 @@ def test_login_resolves_the_correct_tenant_when_usernames_differ(client):
 
 
 @pytest.mark.django_db(databases=["default", "audit"])
-def test_a_platform_admin_cannot_log_in_to_the_store_app(client):
-    admin = User(tenant_id=1, full_name="Platform admin", role="owner", email="admin@example.com")
-    admin.is_platform_admin = True
+def test_the_django_admin_cannot_log_in_to_the_store_app(client):
+    admin = User(tenant_id=1, full_name="Django admin", role="owner", email="admin@example.com")
+    admin.is_django_admin = True
     admin.set_password("correct horse battery staple")
     admin.save()
 
