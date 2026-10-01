@@ -89,3 +89,18 @@ class SalesDailyCashier(TenantModel):
                 fields=["tenant_id", "local_date", "cashier_id"], name="uniq_sales_daily_cashier"
             ),
         ]
+
+
+class PurchasesDaily(TenantModel):
+    """Stock bought per delivery date; filled when a stock receipt is confirmed."""
+
+    local_date = models.DateField()
+    amount = _money()
+
+    class Meta:
+        db_table = "purchases_daily"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_id", "local_date"], name="uniq_purchases_daily"
+            ),
+        ]
