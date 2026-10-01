@@ -1,4 +1,4 @@
-# backend
+# poc-backend
 
 MartDesk backend: Django, Django REST Framework, PostgreSQL. Proof of concept for a single mart.
 
@@ -65,8 +65,8 @@ loop under systemd, for example:
 
 ```
 [Service]
-ExecStart=/srv/backend/.venv/bin/python manage.py run_rollup --loop
-WorkingDirectory=/srv/backend
+ExecStart=/srv/poc-backend/.venv/bin/python manage.py run_rollup --loop
+WorkingDirectory=/srv/poc-backend
 Restart=always
 ```
 
