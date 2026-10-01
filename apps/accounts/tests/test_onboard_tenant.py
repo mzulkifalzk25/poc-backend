@@ -16,21 +16,51 @@ def _answers(monkeypatch, *typed: str) -> None:
 
 @pytest.mark.django_db
 def test_onboard_tenant_creates_a_tenant_settings_and_owner():
-    tenant, owner = onboard_tenant(
+    onboarded = onboard_tenant(
         NewTenant(
             "Fresh Basket Mart",
             "fresh-basket-mart",
-            "Sana Ahmed",
+            "Sana",
+            "Ahmed",
             "sana@example.com",
-            None,
-            PASSWORD,
+            password=PASSWORD,
         )
     )
+    tenant, owner = onboarded.tenant, onboarded.owner
 
     assert tenant.slug == "fresh-basket-mart"
     assert TenantSettings.objects.get(tenant=tenant).store_name == "Fresh Basket Mart"
     assert (owner.tenant_id, owner.role, owner.email) == (tenant.id, "owner", "sana@example.com")
+    assert owner.full_name == "Sana Ahmed"
     assert owner.check_password(PASSWORD)
+
+
+@pytest.mark.django_db
+def test_a_password_is_generated_when_none_is_given():
+    onboarded = onboard_tenant(NewTenant("Mart", "mart", "Sana", "Ahmed", "sana@example.com"))
+
+    assert onboarded.password
+    assert onboarded.owner.check_password(onboarded.password)
+
+
+@pytest.mark.django_db
+def test_mart_and_owner_phone_and_address_are_saved():
+    onboarded = onboard_tenant(
+        NewTenant(
+            "Mart",
+            "mart",
+            "Sana",
+            "Ahmed",
+            "sana@example.com",
+            tenant_phone="0300",
+            tenant_address="Main Road",
+            owner_phone="0321",
+        )
+    )
+
+    settings = TenantSettings.objects.get(tenant=onboarded.tenant)
+    assert (settings.phone, settings.address) == ("0300", "Main Road")
+    assert onboarded.owner.phone == "0321"
 
 
 @pytest.mark.django_db
@@ -39,9 +69,7 @@ def test_a_taken_slug_is_refused():
 
     with pytest.raises(TenantSlugTakenError):
         onboard_tenant(
-            NewTenant(
-                "Fresh Basket Mart", "fresh-basket-mart", "Sana", "s@example.com", None, PASSWORD
-            )
+            NewTenant("Fresh Basket Mart", "fresh-basket-mart", "Sana", "Ahmed", "s@example.com")
         )
 
 
@@ -52,7 +80,8 @@ def test_command_creates_a_tenant_and_owner_who_can_sign_in(monkeypatch):
     call_command(
         "create_store_owner",
         store_name="Fresh Basket Mart",
-        owner_name="Sana Ahmed",
+        owner_first_name="Sana",
+        owner_last_name="Ahmed",
         email="sana@example.com",
     )
 
@@ -67,7 +96,12 @@ def test_command_needs_an_email_or_a_username(monkeypatch):
     _answers(monkeypatch, PASSWORD, PASSWORD)
 
     with pytest.raises(CommandError, match="--email or --username"):
-        call_command("create_store_owner", store_name="Fresh Basket Mart", owner_name="Sana Ahmed")
+        call_command(
+            "create_store_owner",
+            store_name="Fresh Basket Mart",
+            owner_first_name="Sana",
+            owner_last_name="Ahmed",
+        )
 
 
 @pytest.mark.django_db
@@ -78,7 +112,8 @@ def test_command_refuses_mismatched_passwords(monkeypatch):
         call_command(
             "create_store_owner",
             store_name="Fresh Basket Mart",
-            owner_name="Sana Ahmed",
+            owner_first_name="Sana",
+            owner_last_name="Ahmed",
             email="sana@example.com",
         )
 
@@ -94,6 +129,7 @@ def test_command_refuses_a_taken_slug(monkeypatch):
         call_command(
             "create_store_owner",
             store_name="Fresh Basket Mart",
-            owner_name="Sana Ahmed",
+            owner_first_name="Sana",
+            owner_last_name="Ahmed",
             email="sana@example.com",
         )

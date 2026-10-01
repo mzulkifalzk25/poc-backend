@@ -1,0 +1,8 @@
+{% extends "admin/change_form.html" %}
+
+{% block object-tools-items %}
+  {% if original and original.pk %}
+  <li><a href="{% url 'admin:accounts_user_set_password' original.pk %}">Set password</a></li>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

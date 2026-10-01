@@ -1,0 +1,11 @@
+{% extends "admin/index.html" %}
+
+{% block content %}
+<p>
+  <a class="button" href="{% url 'admin:tenants_tenant_onboard' %}"
+     style="display:inline-block;padding:10px 18px;font-size:15px;">
+    + Add mart and owner
+  </a>
+</p>
+{{ block.super }}
+{% endblock %}

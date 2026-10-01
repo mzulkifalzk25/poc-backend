@@ -16,8 +16,20 @@ from apps.accounts.domain.role_rules import CASHIER, OWNER
 from apps.accounts.models import User
 from apps.catalog.domain.product_rules import name_key, normalize_product_name
 from apps.catalog.models import Category, PriceHistory, Product
-from apps.inventory.models import StockLevel, StockMovement
-from apps.reports.models import SalesDaily, SalesDailyCashier, SalesDailyProduct, SalesHourly
+from apps.inventory.models import (
+    StockLevel,
+    StockMovement,
+    StockReceipt,
+    StockReceiptLine,
+    Supplier,
+)
+from apps.reports.models import (
+    PurchasesDaily,
+    SalesDaily,
+    SalesDailyCashier,
+    SalesDailyProduct,
+    SalesHourly,
+)
 from apps.sales.models import Bill, BillItem, HeldBill, Payment, Return, ReturnItem
 from apps.shifts.models import Shift
 from apps.tenants.domain.device_token import generate_device_token, hash_device_token
@@ -41,6 +53,7 @@ RESET_ORDER = (
     SalesDaily,
     SalesDailyProduct,
     SalesDailyCashier,
+    PurchasesDaily,
     HeldBill,
     ReturnItem,
     Return,
@@ -48,6 +61,9 @@ RESET_ORDER = (
     BillItem,
     Bill,
     Shift,
+    StockReceiptLine,
+    StockReceipt,
+    Supplier,
     StockMovement,
     StockLevel,
     PriceHistory,

@@ -9,6 +9,11 @@ class LoginRequestSerializer(serializers.Serializer):
     password = serializers.CharField()
 
 
+class ChangePasswordRequestSerializer(serializers.Serializer):
+    current_password = serializers.CharField()
+    new_password = serializers.CharField()
+
+
 class LogoutRequestSerializer(serializers.Serializer):
     refresh = serializers.CharField()
 

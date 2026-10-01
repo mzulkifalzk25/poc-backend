@@ -6,7 +6,7 @@ from django.urls import reverse
 from apps.accounts.models import User
 from apps.accounts.use_cases.django_admin import save_django_admin
 from apps.sales.tests.factories import make_return
-from apps.tenants.models import Counter
+from apps.tenants.models import Counter, Tenant
 
 EMAIL = "admin@example.com"
 PASSWORD = "Blue-Kettle-Morning-42"
@@ -96,7 +96,23 @@ def test_every_other_model_can_be_added(signed_in):
         meta = model._meta
         # ActivityLog stays append-only; token_blacklist is a third-party app
         # whose own admin already refuses manual adds, not ours to change.
-        if model is ActivityLog or meta.app_label == "token_blacklist":
+        # Tenant's add opens the onboarding page (mart and owner together).
+        if model in (ActivityLog, Tenant) or meta.app_label == "token_blacklist":
             continue
         url = reverse(f"admin:{meta.app_label}_{meta.model_name}_add")
         assert signed_in.get(url).status_code == 200, url
+
+
+def test_the_django_admin_changes_their_own_password(signed_in):
+    new = "Green-Lantern-River-77"
+
+    response = signed_in.post(
+        reverse("admin:password_change"),
+        {"old_password": PASSWORD, "new_password1": new, "new_password2": new},
+    )
+
+    assert response.status_code == 302
+    assert User.objects.get(is_django_admin=True).check_password(new)
+    again = Client()
+    again.post(reverse("admin:login"), {"username": EMAIL, "password": new})
+    assert again.get(reverse("admin:index")).status_code == 200

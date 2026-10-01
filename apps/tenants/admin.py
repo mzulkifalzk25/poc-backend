@@ -1,5 +1,8 @@
 from django.contrib import admin
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.urls import path, reverse
 
+from apps.accounts.admin_onboarding import onboard_tenant_view
 from apps.tenants.models import Counter, Device, DeviceCode, Tenant, TenantSettings
 
 
@@ -9,6 +12,22 @@ class TenantAdmin(admin.ModelAdmin):
     list_filter = ("status", "plan")
     search_fields = ("name", "slug")
     readonly_fields = ("created_at", "updated_at")
+
+    def get_urls(self) -> list:
+        custom = path(
+            "onboard/",
+            self.admin_site.admin_view(
+                lambda request: onboard_tenant_view(request, self.admin_site)
+            ),
+            name="tenants_tenant_onboard",
+        )
+        return [custom, *super().get_urls()]
+
+    def add_view(
+        self, request: HttpRequest, form_url: str = "", extra_context=None
+    ) -> HttpResponse:
+        """A mart is never added alone: it always comes with its owner."""
+        return HttpResponseRedirect(reverse("admin:tenants_tenant_onboard"))
 
 
 @admin.register(TenantSettings)
