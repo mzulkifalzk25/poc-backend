@@ -1,4 +1,4 @@
-# poc-backend
+# backend
 
 MartDesk backend: Django, Django REST Framework, PostgreSQL. Proof of concept for a single mart.
 
@@ -65,8 +65,8 @@ loop under systemd, for example:
 
 ```
 [Service]
-ExecStart=/srv/poc-backend/.venv/bin/python manage.py run_rollup --loop
-WorkingDirectory=/srv/poc-backend
+ExecStart=/srv/backend/.venv/bin/python manage.py run_rollup --loop
+WorkingDirectory=/srv/backend
 Restart=always
 ```
 
@@ -87,6 +87,30 @@ python manage.py create_django_admin    # asks for the password twice
 Creates that one account, or resets its password when run again. Store data
 is view-only in the admin (the app's own rules and activity log apply to every
 change); tenants and the admin's own name and active flag can be edited.
+
+## Adding a mart and its owner
+
+In the Django admin open **Tenants → Add** (or `/admin/tenants/tenant/onboard/`).
+Fill in the mart, the owner's name and email, and optionally a password (empty
+means one is generated). The mart, its settings and the owner account are
+created, and the owner gets an email with the login link, their email and the
+password. If the email cannot be sent, the mart is still created and the admin
+page shows the password once so you can pass it on yourself.
+
+Set these in `.env` (see `.env.example`): `STORE_APP_URL` (the frontend address
+sent as the login link) and the SMTP values `EMAIL_HOST`, `EMAIL_PORT`,
+`EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS` / `EMAIL_USE_SSL`,
+`DEFAULT_FROM_EMAIL`. The command line still works:
+`python manage.py create_store_owner --store-name ... --owner-first-name ... --owner-last-name ... --email ...`.
+
+To choose an owner's or manager's password yourself: open the user in **Users**
+and click **Set password** (top right); optionally tick the box to email it. Only
+the hash is stored.
+
+To reset to a random password instead: **Users**, tick them, choose
+**Reset password and email it to the selected owners and managers**, then Go.
+A new random password is emailed with the login link (shown on the page once
+if the email fails).
 
 ## Layout
 
