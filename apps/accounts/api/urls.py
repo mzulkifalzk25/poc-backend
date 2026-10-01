@@ -2,7 +2,7 @@ from django.urls import path
 
 from .pos_views import BootstrapView, CashierLoginView, HeartbeatView
 from .staff_views import ResetPasswordView, StaffDetailView, StaffListCreateView
-from .views import LoginView, LogoutView, MeView, RefreshView
+from .views import ChangePasswordView, LoginView, LogoutView, MeView, RefreshView
 
 urlpatterns = [
     path("auth/login", LoginView.as_view(), name="auth-login"),
@@ -10,6 +10,7 @@ urlpatterns = [
     path("auth/refresh", RefreshView.as_view(), name="auth-refresh"),
     path("auth/logout", LogoutView.as_view(), name="auth-logout"),
     path("me", MeView.as_view(), name="me"),
+    path("me/change-password", ChangePasswordView.as_view(), name="me-change-password"),
     path("pos/bootstrap", BootstrapView.as_view(), name="pos-bootstrap"),
     path("counters/<int:counter_id>/heartbeat", HeartbeatView.as_view(), name="counter-heartbeat"),
     path("users", StaffListCreateView.as_view(), name="user-list-create"),

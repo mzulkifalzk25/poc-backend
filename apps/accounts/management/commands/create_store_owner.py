@@ -15,7 +15,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--store-name", required=True, help="The mart's name, e.g. 'Fresh Basket Mart'"
         )
-        parser.add_argument("--owner-name", required=True, help="The owner's full name")
+        parser.add_argument("--owner-first-name", required=True)
+        parser.add_argument("--owner-last-name", required=True)
         parser.add_argument("--email", help="The owner's sign-in email")
         parser.add_argument("--username", help="The owner's sign-in username, if no email")
         parser.add_argument("--slug", help="Tenant slug; derived from --store-name if left out")
@@ -28,11 +29,12 @@ class Command(BaseCommand):
         slug = options.get("slug") or slugify(options["store_name"])
         password = self._ask_password()
         try:
-            tenant, owner = onboard_tenant(
+            onboarded = onboard_tenant(
                 NewTenant(
                     tenant_name=options["store_name"],
                     tenant_slug=slug,
-                    owner_name=options["owner_name"],
+                    owner_first_name=options["owner_first_name"],
+                    owner_last_name=options["owner_last_name"],
                     owner_email=email,
                     owner_username=username,
                     password=password,
@@ -40,6 +42,7 @@ class Command(BaseCommand):
             )
         except TenantSlugTakenError:
             raise CommandError(f"A tenant with the slug '{slug}' already exists.") from None
+        tenant, owner = onboarded.tenant, onboarded.owner
         self.stdout.write(f"Created {tenant.name} (tenant {tenant.id}), owner {owner.full_name}.")
         self.stdout.write(f"Sign in with {email or username} and the password you just typed.")
 

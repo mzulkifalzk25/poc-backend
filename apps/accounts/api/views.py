@@ -10,9 +10,18 @@ from apps.audit.use_cases.record_activity import ActivityEntry, record_failure
 from apps.core.api.exceptions import ApiError
 from apps.tenants.use_cases.tenants import tenant_of
 
+from ..use_cases.change_own_password import (
+    WeakPasswordError,
+    WrongCurrentPasswordError,
+    change_own_password,
+)
 from ..use_cases.login import InvalidCredentials, authenticate_account, find_login_account
 from .presenters import present_tenant, present_user
-from .serializers import LoginRequestSerializer, LogoutRequestSerializer
+from .serializers import (
+    ChangePasswordRequestSerializer,
+    LoginRequestSerializer,
+    LogoutRequestSerializer,
+)
 from .throttling import LoginRateThrottle
 from .tokens import RefreshSerializer
 
@@ -116,3 +125,32 @@ class MeView(APIView):
                 "permissions": {},
             }
         )
+
+
+class ChangePasswordView(APIView):
+    """An owner or manager changes their own password. Cashiers use PINs."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        if user.role not in _OWNER_ROLES:
+            raise ApiError(code="forbidden", message="Owner access required.", status_code=403)
+        serializer = ChangePasswordRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            change_own_password(user, data["current_password"], data["new_password"])
+        except WrongCurrentPasswordError:
+            raise ApiError(
+                code="invalid_current_password",
+                message="The current password is incorrect.",
+                fields={"current_password": ["The current password is incorrect."]},
+            ) from None
+        except WeakPasswordError as error:
+            raise ApiError(
+                code="validation_error",
+                message="Validation failed.",
+                fields={"new_password": error.messages},
+            ) from None
+        return Response(status=204)

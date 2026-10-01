@@ -24,6 +24,7 @@ class User(TenantModel, AbstractBaseUser):
     role = models.CharField(max_length=10, choices=_ROLE_CHOICES)
     email = models.EmailField(null=True, blank=True)
     username = models.CharField(max_length=150, null=True, blank=True)
+    phone = models.CharField(max_length=32, blank=True, default="")
     default_counter_id = models.BigIntegerField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     last_active_at = models.DateTimeField(null=True, blank=True)
